@@ -1,3 +1,70 @@
+<#
+.Synopsis
+   ..
+.DESCRIPTION
+   ....
+.EXAMPLE
+   ...
+.NOTES
+   .
+.FUNCTIONALITY
+   .......
+#>
+function New-TESQLInstance
+{
+    Param
+    (
+        [Parameter(Mandatory=$true,Position=0)]
+        [ValidateLength(1,16)] #SQL named instance name requirements (https://stackoverflow.com/questions/5260650/max-length-of-sql-server-instance-name)
+        [ValidateScript({$_ -notmatch "@" -and $_ -notmatch ":" -and $_ -notmatch "," -and $_ -notmatch " "})] #SQL named instance name requirements (https://stackoverflow.com/questions/5260650/max-length-of-sql-server-instance-name)
+        [string]$SqlInstanceName
+
+
+#An instance name cannot be the terms Default or MSSQLServer.
+
+#The first character in the instance name must be a letter, an ampersand (&), an underscore (_), or a number sign (#). Acceptable letters are those defined by the Unicode Standard 2.0, which includes Latin characters a-z and A-Z, in addition to letter characters from other languages.
+#Subsequent characters can be:
+
+#Letters as defined in the Unicode Standard 2.0.
+#Decimal numbers from either Basic Latin or other national scripts.
+#The dollar sign ($), a number sign (#), or an underscore (_).
+#Embedded spaces or special characters are not allowed in instance names. Neither is the backslash (), a comma (,), a colon (:), or the at sign (@).
+
+
+
+        # Param2 help description
+        #[Parameter(ParameterSetName='Parameter Set 1')]
+        #[AllowNull()]
+        #[AllowEmptyCollection()]
+        #[AllowEmptyString()]
+        #[ValidateScript({$true})]
+        #[ValidateRange(0,5)]
+        #[int]
+        #$Param2,
+
+        # Param3 help description
+        #[Parameter(ParameterSetName='Another Parameter Set')]
+        #[ValidatePattern("[a-z]*")]
+        #[ValidateLength(0,15)]
+        #[String]
+        #$Param3
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        if ($pscmdlet.ShouldProcess("Target", "Operation"))
+        {
+        }
+    }
+    End
+    {
+    }
+}
+
+
 Param(
 #Installations variables
     $QuiteMode,         # true with quite mode  < >  false with wizard mode 
