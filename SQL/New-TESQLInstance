@@ -1,0 +1,2332 @@
+Param(
+#Installations variables
+    $QuiteMode,         # true with quite mode  < >  false with wizard mode 
+    $OnlySettingMode = $false, #only setting mode (firewall, local policy, sql and etc.) , without format, installation and etc. 
+    $SQLVersion,# SQL2012,SQL2014,SQL2016,SQL2017,SQL2019 
+    $SQLEdition, #Standard or Enterprise, Developer 
+    $InstFileSQLServer="c:\install\$($SQLVersion)" , #change path of installation. 
+#region Failover Cluster setting > ONLY IN CASE INSTALLATION FAILOVER CLUSTER
+    $isCluster = $false ,        #if you will install cluster 
+    $ClusterResourceName = 'SQL-SQLCLU1', #name of resource which will be create in role in cluster cluster
+    $SQLClusterNetworkName = 'SQL-SQLCLU1' ,#name of SQL cluster name, this will be also connection name to SSMS 
+    $ClusterIP = 'IPv4;192.168.0.1;Cluster Network 1;255.255.255.0' ,#IP , name of Network, should be default > Change only IP and if is needed Gateway
+    $ClusterDisks = 'Cluster Disk 1' ,#Name Of cluster disks from Failover Manager and disks 
+#endregion
+#region Always On Setting > ONLY IN CASE INSTALLATION OF ALWAYS ON CLUSTER
+    $isAG = $False,     #setting of Always on in service https://jira.etb.tieto.com/browse/DBPS-43
+ #   $AGListenerName ="" ,       #AG listenerName / not use yet
+ #   $AGListenerIP   ="" ,  #AG listenerIP / not use ye
+
+#endregion
+
+#Instance Name
+    $SqlInstanceName              ,#IF MSSQLSERVER then is set to default , or change to named instance
+
+ #Feature setting for DB Engine 
+    $SqlCollation      , #Latin1_General_CI_AS Finnish_Swedish_CI_AS #DB engine collation change based on request 
+    $SqlSvcAccountEngine     ,#name of sql service account for  DBEngine. in case without service account use only '', there will be set NT SERVICE/MSSQLSERVER // example 1. 'domain/account' 2. ''
+    $SqlSvcAccountEngine_pw         ,#pwd of sql service account for DBEngine. in case without service account use only '', there will be set NT SERVICE/MSSQLSERVER
+    $SqlSvcAccountAgent     ,#name of sql service account for SQLAgent  ( possible same like DB Engine ) . in case without service account use only '', there will be set NT SERVICE/MSSQLSERVER
+    $SqlSvcAccountAgent_pw  ,#pwd of sql service account for SQLAgent. in case without service account use only '', there will be set NT SERVICE/MSSQLSERVER    
+    $SqlADGroupAccount,#AD Group for access like SQL sysadmin . domain of TIETO SQL group or user which will be sysadmin
+    $SqlSA_pw                   ,#sql password of sa(old_sa) and TE_DBA
+    $SqlTCPPort                      ,#sql port for db engine if there is empty will be use 50001+ https://jira.etb.tieto.com/browse/DBPS-140
+    
+#Disks setting
+    $DisksAlreadyOnServer =$false    ,# if disks are prepared based on framework on server set true, if disks are in offline or wrong formated set false, if problem persist delete volume and change disks to offline 
+    $formattingDeleteData = $true        ,# DELETE ALL DATA !!!  If delete data is needed set true, be carefull because this will be DELETE ALL DATA !!! 
+
+#Disks setting if disks are ok and you want specify only path, working only with parameter above $DisksAlreadyOnServer =$true   
+    $DATADISK=  "D:\SQLDATA_$($SqlInstanceName)"         ,#Disk for user and system mdf, ndf files
+    $LOGDISK=   "D:\SQLTLOG_$($SqlInstanceName)"     ,#Disk for user and system ldf files and tempdb ldf
+    $TEMPDBDISK="D:\SQLTEMPDB_$($SqlInstanceName)"             ,#Disk for tempdb
+    $BACKUPDISK="D:\SQLBACKUP_$($SqlInstanceName)"            ,#Disk for Backup
+    $BinaryDisk="C:\"             ,#Disk for binary , default C:
+
+#Disks setting if not formatted yet or needed reformat , working with $DisksAlreadyOnServer =$false or if is set disk to 0, it will use path above
+														# example > Binary disk already exists , set 0 and use path from $BinaryDisk
+    $IDSQLBINARY= 0 ,       # set binary disks ID, but if Binary are on C or already Exists set to 0 
+    $IDMountPoint,  #set only MNT disks, if MNT is not here set 0
+    $IDSQLDATA,
+    $IDSQLTLOG,
+    $IDSQLTEMPDB, 
+    $IDSQLBACKUP,
+
+#Feature setting for Reporting Services ( only if  $ReportingServices  is true )
+# In SQL 2017 is separate installation  
+    $ReportingServices  = $false      , #Installs all Reporting Services components.
+    $SqlSvcAccountRS='' ,#name of sql service account for Reporting. in case without service account use only '', there will be set NT SERVICE/MSSQLSERVER
+    $SqlSvcAccountRS_pw='' ,
+
+#Feature setting for Analysis Services ( only if  $AnalysisServices  is true ) 
+    $AnalysisServices    = $false        , #Installs all Analysis Services components.
+    $AnalysisServerMode  = 'MULTIDIMENSIONAL'           , # Specifies the server mode of the Analysis Services instance. Valid values are MULTIDIMENSIONAL, POWERPIVOT, or TABULAR. AnalysisServerMode is case-sensitive. All values must be expressed in upper case https://jira.etb.tieto.com/browse/DBPS-154
+    $ASColation = 'Latin1_General_CI_AS'  ,#Analysis services collation change based on request 
+    $SqlSvcAccountAS=''   , #name of sql service account for Analysis. in case without service account use only '', there will be set NT SERVICE/MSSQLSERVER
+    $SqlSvcAccountAS_pw='', 
+    $ASDATADISK=  ''   ,#Disk for analysis data // if are empty will be using SQLDATA
+    $ASLOGDISK=   ''   ,#Disk for analysis log // if are empty will be using SQLTLOG 
+    $ASTEMPDISK=  ''   ,#Disk for tempdb  // if are empty will be using SQLTEMPDB
+    $ASBACKUPDISK=''   ,#Disk for Backup // if are empty will be using SQLBACKUP
+
+
+#Feature setting for Integration Services ( only if  $IntegrationServices  is true ) 
+    $IntegrationServices = $false  ,#Installs all Integration Services components
+    $SqlSvcAccountIS=''           ,#name of sql service account for Integration. in case without service account use only '', there will be set NT SERVICE/MSSQLSERVER
+    $SqlSvcAccountIS_pw='' 
+
+################################################################################################
+############################### END PARAMETERS #################################################
+################################################################################################
+)
+
+
+Write-Host "QuiteMode" $QuiteMode
+Write-Host "OnlySettingMode" $OnlySettingMode
+Write-Host "SQLVersion" $SQLVersion $SQLVersion.GetType().Name $SQLVersion.Length 
+
+Write-Host "SQLEdition" $SQLEdition
+Write-Host "InstFileSQLServer" $InstFileSQLServer
+ 
+
+Write-Host "SqlInstanceName" $SqlInstanceName
+Write-Host "SqlCollation" $SqlCollation
+Write-Host "SqlSvcAccountEngine" $SqlSvcAccountEngine
+Write-Host "SqlSvcAccountEngine_pw" $SqlSvcAccountEngine_pw
+Write-Host "SqlSvcAccountAgent" $SqlSvcAccountAgent
+Write-Host "SqlSvcAccountAgent_pw" $SqlSvcAccountAgent_pw
+Write-Host "SqlADGroupAccount" $SqlADGroupAccount
+Write-Host "SqlSA_pw" $SqlSA_pw
+Write-Host "SqlTCPPort" $SqlTCPPort
+Write-Host "InstFileSQLServer" $InstFileSQLServer
+																																								  
+
+Write-Host "DATADISK" $DATADISK
+Write-Host "LOGDISK" $LOGDISK
+Write-Host "TEMPDBDISK" $TEMPDBDISK
+Write-Host "BACKUPDISK" $BACKUPDISK
+Write-Host "BinaryDisk" $BinaryDisk
+
+
+ Start-Transcript -Path ([String]::Format("C:\install\SQLInstall.txt", $($serverName), $($InstanceName)))  -Force -Append 
+
+#function
+
+
+##Write output
+function Write-FormatedOutput {
+    param ([string] $format, [string] $color="white")
+    $message = [System.String]::Format($format, $args)
+    Write-Host $([System.String]::Format("{0:yyyy-MM-dd HH:mm:ss.fff} - {1}", $(Get-Date), $message)) -foregroundcolor $color
+}
+
+ $StartOnlyCheckParameters = $false
+
+
+
+
+#VERIFY ACCOUNTS
+function verify_existence_of_account {
+    param([string]$user_name, [string]$user_password="", [string]$features)
+    if(0 -lt $user_name.Length) {
+        if ($user_name.Contains('\')) {
+            $ver_res = verify_domain_account  $user_name  $features
+            return $ver_res
+        } else {
+            #$ver_res = verify_local_account $user_name $user_password $features
+            return $ver_res
+        }
+        Write-FormatedOutput "Will be using domain accounts for {0}" $features -color "White"
+    } else {
+        Write-FormatedOutput "Will be using Local accounts for {0}" $features -color "Yellow"
+        #exit 1
+    }
+}
+
+function verify_domain_account {
+    param([string]$domain_user_name, [string]$features)
+    Write-FormatedOutput "Verifying domain account $user_name" -color "White"
+    if(0 -ge $domain_user_name.Length) {
+        Write-FormatedOutput "User name part of a domain account cannot be empty" -color "Red"
+        #return 1
+    }
+    $Searcher = [ADSISearcher]"(sAMAccountName=$domain_user_name)"
+    $Results = $Searcher
+    if($null -eq $Results) {
+        Write-FormatedOutput "User {0} does not exist in AD for feature {1}"$domain_user_name $features -color "Red"
+        #return 1
+    } else {
+       Write-FormatedOutput "User {0} exist in AD for feature {1}" $domain_user_name $features -color "Green"
+       #return 0
+    }
+}
+
+function verify_local_account {
+    param([string]$local_user_name,[string]$user_password="", [string]$features)
+    Write-FormatedOutput "Verifying {0} local account for feature {1}"  $local_user_name  $features -color "White"
+    $user_exists = 1
+    try {
+        Get-LocalUser -Name $local_user_name | Out-Null
+    } catch {
+        Write-FormatedOutput "Account {0} does not exist for feature {1}" $local_user_name $features -color "Red"
+        exit 1
+    }
+    
+    return 0
+    #if ($user_password -eq "") {
+        #Add-Type -AssemblyName System.Web
+        #$user_password = [System.Web.Security.Membership]::GeneratePassword(32, 10)
+    #}
+}
+
+function verify_port {
+    param([int]$port)
+  
+   
+    if($port -eq '1434') {
+        Write-FormatedOutput "Not possible use port {0}, because this is for SQL Browser" $port  -color "Red"
+        throw "Missing parameter SqlInstanceName  " 
+        #return 1
+    } else {
+       #Write-FormatedOutput " {0} exist in AD for feature {1}" $domain_user_name $features -color "Green"
+       #return 0
+    }
+}
+
+verify_port -port $SqlTCPPort
+
+
+if ($OnlySettingMode -eq $false) # https://jira.etb.tieto.com/browse/DBPS-50
+{
+
+##VERIFY PARAMETERS 
+function verify_parameters
+  {
+    if ($InstFileSQLServer)
+         {
+              $checkpathFile = $InstFileSQLServer+"\setup.exe"  
+
+              if (Test-Path $checkpathFile -PathType leaf)
+                    {
+                        Write-FormatedOutput "Installation checking for $SQLVersion $SQLEdition ... " -color "White"
+                    }
+            else 
+            {
+              Write-FormatedOutput "Wrong parameter InstFileSQLServer, setup.exe cannot be found " -color "Red"
+              throw "Wrong parameter InstFileSQLServer, setup.exe cannot be found "
+            }
+             
+         }
+    else 
+         {
+              Write-FormatedOutput "Missing parameter InstFileSQLServer " -color "Red"
+              throw "Missing parameter InstFileSQLServer "
+         }
+
+     if ($SQLVersion -ne "SQL2019" -and $SQLVersion -ne "SQL2017" -and $SQLVersion -ne "SQL2016" -and $SQLVersion -ne "SQL2014" -and $SQLVersion -ne "SQL2012")
+        {
+             Write-FormatedOutput "Missing parameter SQLVersion or Version {0} is not supported " $SQLVersion  -color "Red"
+             throw "Missing parameter SQLVersion or Version $SQLVersion is not supported " 
+        }
+
+     if ($SQLEdition -ne "Enterprise" -and $SQLEdition -ne "Standard"  -and $SQLEdition -ne "Developer")
+        {
+             Write-FormatedOutput "Missing parameter SQLEdition or Edition {0} is not supported " $SQLEdition  -color "Red"
+             throw "Missing parameter SQLEdition or Edition $SQLEdition is not supported " 
+        }
+
+    
+     if ([string]::isnullorempty($SqlInstanceName) )
+        {
+             Write-FormatedOutput "Missing parameter SqlInstanceName "   -color "Red"
+             throw "Missing parameter SqlInstanceName  " 
+        }
+
+     if ([string]::isnullorempty($SqlCollation) )
+        {
+             Write-FormatedOutput "Missing parameter SqlCollation "   -color "Red"
+             throw "Missing parameter SqlCollation  " 
+        }
+
+    if ([string]::isnullorempty($SqlADGroupAccount) )
+        {
+             Write-FormatedOutput "Missing parameter SqlADGroupAccount. Should be here Active Directory Group of MSSQL team or is needed one Admin account(service or your domain) "   -color "Red"
+             throw "Missing parameter SqlADGroupAccount  " 
+        }
+     if ($SqlADGroupAccount  -like "*/*" )
+        {
+             Write-FormatedOutput "Parameter SqlADGroupAccount has ""/"" in between domain and account instead of ""\"" "   -color "Red"
+             throw "Wrong parameter SqlADGroupAccount  " 
+        }
+
+    
+     if ([string]::isnullorempty($SqlSA_pw) )
+        {
+             Write-FormatedOutput "Missing parameter SqlSA_pw "   -color "Red"
+             throw "Missing parameter SqlSA_pw  " 
+        }
+
+
+      if  ( $ReportingServices -and ( $SQLVersion -eq "SQL2017" -or $SQLVersion -eq "SQL2019" ))
+        {
+          Write-FormatedOutput "SQL Instance {0} installation failed. From SQL2017 is separate installation of Reporting Services, set to false " $InstanceName -color "Red"
+          throw "From SQL2017 is separate installation of Reporting Services, set to false"
+           return 1
+        }
+
+      if ($SqlSvcAccountEngine -like "*/*" `
+            -or $SqlSvcAccountAgent  -like "*/*" `
+            -or $SqlSvcAccountRS  -like "*/*" `
+            -or $SqlSvcAccountAS  -like "*/*" `
+            -or $SqlSvcAccountIS  -like "*/*" 
+            )
+        {
+          Write-FormatedOutput "One of SQL Service Accounts in SQL Instance {0} has ""/"" in between domain and account instead of ""\""" $InstanceName -color "Red"
+          throw "Wrong parameters in one of SQL Service Account "
+           return 1
+        }
+
+
+   
+  }
+
+ verify_parameters
+
+##get product key
+
+function get_productkey {
+    param([string]$version_edition)
+    switch ($version_edition) 
+    { 
+        "SQL2012Developer"  {$InstallationKey= "22222-00000-00000-00000-00000"}
+        "SQL2012Standard"   {$InstallationKey= "YFC4R-BRRWB-TVP9Y-6WJQ9-MCJQ7"} 
+        "SQL2012Enterprise" {$InstallationKey= "748RB-X4T6B-MRM7V-RTVFF-CHC8H"} 
+        "SQL2014Developer"  {$InstallationKey= "82YJF-9RP6B-YQV9M-VXQFR-YJBGX"}
+        "SQL2014Standard"   {$InstallationKey= "P7FRV-Y6X6Y-Y8C6Q-TB4QR-DMTTK"} 
+        "SQL2014Enterprise" {$InstallationKey= "TJYBJ-8YGH6-QK2JJ-M9DFB-D7M9D"}
+        "SQL2016Developer"  {$InstallationKey= "22222-00000-00000-00000-00000"} 
+        "SQL2016Standard"   {$InstallationKey= "B9GQY-GBG4J-282NY-QRG4X-KQBCR"} 
+        "SQL2016Enterprise" {$InstallationKey= "TBR8B-BXC4Y-298NV-PYTBY-G3BCP"} 
+        "SQL2017Developer"  {$InstallationKey= "22222-00000-00000-00000-00000"}
+        "SQL2017Standard"   {$InstallationKey= "PHDV4-3VJWD-N7JVP-FGPKY-XBV89"}
+        "SQL2017Enterprise" {$InstallationKey= "6GPYM-VHN83-PHDM2-Q9T2R-KBV83"}
+        "SQL2019Developer"  {$InstallationKey= "22222-00000-00000-00000-00000"}
+        "SQL2019Standard"   {$InstallationKey= "PMBDC-FXVM3-T777P-N4FY8-PKFF4"}
+        "SQL2019Enterprise" {$InstallationKey= "2C9JR-K3RNG-QD4M4-JQ2HR-8468J"}
+       default {throw "The product key could not be determinated for $version_edition."}
+    }
+    return  $InstallationKey
+}
+$InstallationKey  = get_productkey $SQLVersion$SQLEdition
+
+																							
+
+##check sql writer
+       # Check startup mode
+  function SQLWriterDisabled ($ComputerName) {
+            $SQLWriter = Get-WMIObject win32_service -filter "name='SQLWriter'" -computer $ComputerName
+            return $SQLWriter.StartMode -eq "Disabled"
+        }
+        
+        # Check all prerequisites
+function CheckInstallationPrereq ($ComputerName) {
+         Write-FormatedOutput "Verifying SQL Server prerequisites ..." 
+            $ok = $true
+        
+            # Check SQL VSS Writer service startup mode
+            If (SQLWriterDisabled $ComputerName){
+                $ok = $false
+                
+                Write-FormatedOutput "Server {0} SQL VSS Writer service startup mode is disabled" $ComputerName   -color "Red" 
+
+                      #Start SQL Writer if it is stopped
+                      Write-FormatedOutput "Checking if SQL Writer is stopped... "   -color "White"
+                      try{
+                          $SQLWriterOrigState = (Get-service -name SQLWriter).Status
+                          if ($SQLWriterOrigState -eq "Stopped") 
+                          {
+                          
+                          Set-Service -Name SQLWriter -StartupType Automatic
+                          Start-Service -Name SQLWriter
+                          Write-FormatedOutput "Starting SQLWriter"   -color "Green"}
+                          else
+                          {Write-FormatedOutput "SQLWriter is already running"   -color "Green"} 
+                      } catch {
+                          Write-FormatedOutput "Error occured: " $_.Exception.Message -color "White"
+                      }
+
+
+
+
+
+                return;
+            }  
+        
+            # Green if everything is OK
+            If ($ok -and (Get-WMIObject win32_service -filter "name='SQLWriter'" -computer $ComputerName)) {
+                Write-FormatedOutput "Server {0} SQL Writer is running" $ComputerName   -color "Green"
+              
+            }
+            else {
+             Write-FormatedOutput "Server {0} SQL Writer will be installing " $ComputerName   -color "Yellow"
+             }
+
+
+   
+    Import-Module ServerManager
+    if(( (Get-WindowsFeature NET-Framework-Core | Where-Object {$_.Installed -eq "True"}) -ne $null) ) {
+        Write-FormatedOutput ".Net 3.5 already in place."   -color "Green"
+        
+    }
+    else {
+        Write-FormatedOutput ".Net 3.5 is missing. Check if this is required for your SQL version" -color "Yellow"
+    }
+
+        }
+        
+ CheckInstallationPrereq $env:COMPUTERNAME
+
+##disk formatting
+
+
+# Check if disk is prepared
+#region formatting 
+function Clean_Disk {
+param ( $disknumber )
+
+try {
+            $disk_exists = Get-Disk -Number $disknumber
+        } catch {
+            Write-FormatedOutput "{0}" $_.Exception.Message -color "Red"
+            #exit 1
+        }
+
+        # Initialize disk
+    if ($disk_exists.OperationalStatus -ne 'offline')
+    {
+            Write-FormatedOutput "Removing and cleaning disk number {0}" $disknumber   -color "Yellow"
+            Remove-Partition -DiskNumber $disknumber -PartitionNumber 1 -confirm:$false
+            Clear-Disk -Number $disknumber -RemoveData -confirm:$false
+            Initialize-Disk -Number $disknumber -PartitionStyle GPT -ErrorAction SilentlyContinue 
+            Set-Disk -Number $disknumber -IsOffline $True
+    }
+    elseif ($disk_exists.OperationalStatus -eq     'offline') 
+    {
+            Write-FormatedOutput "{0}" "Skipping disks because for format are in offline." -color "Red"
+           # exit 1
+
+    }
+}
+
+function set_sqldisk {
+param ( [string] $disk_number,[string] $disk_label )
+
+        try {
+            $disk_exists = Get-Disk -Number $disk_number
+        } catch {
+            Write-FormatedOutput "{0}" $_.Exception.Message -color "Red"
+            #exit 1
+        }
+    
+
+        # Initialize disk
+        if ($disk_exists.OperationalStatus -eq 'offline') {
+             
+             try {
+                        
+                        Initialize-Disk -Number $disk_number -PartitionStyle GPT -ErrorAction SilentlyContinue  -Confirm:$false
+                        
+                    } catch {
+                        Write-FormatedOutput "{0}" $_.Exception.Message -color "Red"
+                    }       
+
+                if ($disk_number -ne 0 )
+                {
+                 
+                    if ($MntSetting)
+                    {
+                        if ($disk_label -like  "MNT_$SqlInstanceName" -or $disk_label -contains "SQLBINARY" )
+                        {
+                           
+                            $Partition = New-Partition -DiskNumber $disk_number -AssignDriveLetter -UseMaximumSize 
+                            $Partition |  Format-Volume   -FileSystem NTFS  -ClusterSize 4096 -NewFileSystemLabel $disk_label -Confirm:$false                           
+                            $disk_letter =  Get-WmiObject -Query "SELECT Name FROM Win32_Volume WHERE FileSystem='NTFS' and Label='$disk_label'"  -ComputerName '.' | Select-Object   Name 
+                             Write-FormatedOutput "Set disk {0}{1} " $disk_letter $disk_label  -color "Green"
+                        }
+                        else 
+                        {
+                           
+                            $Partition = New-Partition -DiskNumber $disk_number  -UseMaximumSize 
+                            $Partition |  Format-Volume   -FileSystem NTFS  -ClusterSize 65536 -NewFileSystemLabel $disk_label -Confirm:$false
+                            $disk_letter =  Get-WmiObject -Query "SELECT Name FROM Win32_Volume WHERE FileSystem='NTFS' and Label like 'MNT_$SqlInstanceName'"  -ComputerName '.' | Select-Object   Name 
+                            $diskpaths =$disk_letter.Name+$disk_label
+                             
+                              if (-not (test-path $diskpaths)) 
+                              {
+                                    New-Item $diskpaths -ItemType Directory   | out-null
+                              }
+                              $diskpaths
+                            $Partition | Add-PartitionAccessPath -AccessPath $diskpaths
+                             Write-FormatedOutput "Set disk {0}{1} " $disk_letter $disk_label  -color "Green"   
+                                   
+                         }                    
+                    }
+                else
+                {
+
+                           $Partition = New-Partition -DiskNumber $disk_number -AssignDriveLetter -UseMaximumSize 
+                            $Partition |  Format-Volume   -FileSystem NTFS  -ClusterSize 65536 -NewFileSystemLabel $disk_label -Confirm:$false     
+                            $disk_letter =  Get-WmiObject -Query "SELECT Name FROM Win32_Volume WHERE FileSystem='NTFS' and Label='$disk_label'"  -ComputerName '.' | Select-Object   Name 
+                        Write-FormatedOutput "Set disk {0}{1} " $disk_letter $disk_label  -color "Green"  
+
+                }
+                    
+              }
+
+        }
+        elseif ($disk_exists.OperationalStatus -ne 'offline') {
+            Write-FormatedOutput "Skipping disk  {0}|{1} because it's not offline. " $disk_number $disk_label -color "Red"
+            Write-FormatedOutput "You have more choises, what you can do :" -color "Red"
+            Write-FormatedOutput ">> Set DisksAlreadyOnServer to true and set paths with already formatted disks" -color "Red"
+            Write-FormatedOutput ">> Set number of disk to 0 and set path > for example only for BinaryDisk, if already on place" -color "Red"
+            Write-FormatedOutput ">> Delete volume if is empty and set to offline in Disk management" -color "Red"
+            
+            throw "Skipping disk $disk_number| $disk_label because it's not offline." 
+        }
+
+
+  
+   
+   # #mnt
+   # Set-Disk -Number $MntID -IsOffline $False
+   # Get-Disk | Where Number -eq $MntID | Initialize-Disk -PartitionStyle GPT -PassThru | New-Partition -AssignDriveLetter -UseMaximumSize | Format-Volume -FileSystem NTFS -NewFileSystemLabel "MNT_"+$SqlInstanceName -Confirm:$false
+}    
+
+
+
+$IDDiskParameters=@()
+$IDDiskParameters+=New-Object -TypeName psobject -Property @{Name= "SQLBINARY";    ID= $IDSQLBINARY}
+$IDDiskParameters+=New-Object -TypeName psobject -Property @{Name= "MNT_"+$SqlInstanceName;    ID= $IDMountPoint}
+$IDDiskParameters+=New-Object -TypeName psobject -Property @{Name= "SQLDATA_$SqlInstanceName";    ID= $IDSQLDATA}
+$IDDiskParameters+=New-Object -TypeName psobject -Property @{Name= "SQLTLOG_$SqlInstanceName";    ID= $IDSQLTLOG}
+$IDDiskParameters+=New-Object -TypeName psobject -Property @{Name= "SQLTEMPDB_$SqlInstanceName" ; ID= $IDSQLTEMPDB}
+$IDDiskParameters+=New-Object -TypeName psobject -Property @{Name= "SQLBACKUP_$SqlInstanceName";ID= $IDSQLBACKUP}
+
+#set for mountpoint or no 
+ 
+  $MntSetting = $true 
+  foreach ($item11 in $IDDiskParameters)
+    {
+    if ($item11.ID -eq 0 -and $item11.Name -like  "MNT_$SqlInstanceName" )
+                    {
+                        $MntSetting = $false 
+                    }    
+                    
+    }
+
+
+
+
+if (!$DisksAlreadyOnServer)
+{
+
+    foreach ($item in $IDDiskParameters)
+    {
+        
+         if ($item.ID -ne 0 )
+            {
+    
+                  if ($formattingDeleteData)
+                    {
+                 
+                     
+                   Clean_Disk -disknumber $item.ID 
+                    
+                    }
+       
+              set_sqldisk  -disk_number $item.ID -disk_label $item.Name
+             
+              $disklableTemp = $item.Name
+              $disk_letterTemp =  Get-WmiObject -Query "SELECT Name FROM Win32_Volume WHERE FileSystem='NTFS' and Label='$disklableTemp'"  -ComputerName '.' | Select-Object   Name 
+                     
+                 switch -Wildcard  ( $item.Name   )
+                     {
+                         "*SQLDATA*"  { $DATADISK   =  $disk_letterTemp.Name            }
+                         "*SQLTLOG*"  { $LOGDISK    =  $disk_letterTemp.Name         }
+                         "*SQLTEMPDB*" {$TEMPDBDISK =  $disk_letterTemp.Name         }
+                         "*SQLBACKUP*" {$BACKUPDISK =  $disk_letterTemp.Name         }
+                         "*SQLBINARY*" {$BinaryDisk =  $disk_letterTemp.Name         }
+                        
+                     }  
+              
+                     
+             }
+
+    }
+
+}
+#endregion
+
+
+
+#function create_disks_folders{
+#region create new array for all disks
+$SQLName  = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName').ComputerName #SQL instance name 
+$disk_letterTempa=$disk_letterTemp.Name
+$ObjectDisks = @()
+$ObjectDisks = Get-WmiObject Win32_volume -ComputerName "$SQLName" -Filter "DriveType=3  " | select Name, Label, FileSystem,BlockSize
+
+
+##create new array for parameter disks 
+ $DiskParameters=@()
+$DiskParameters+=New-Object -TypeName psobject -Property @{DISK= $DATADISK}
+$DiskParameters+=New-Object -TypeName psobject -Property @{DISK= $LOGDISK}
+$DiskParameters+=New-Object -TypeName psobject -Property @{DISK= $TEMPDBDISK}
+$DiskParameters+=New-Object -TypeName psobject -Property @{DISK= $BACKUPDISK}
+            
+##mapping of folders for parameters for example E:\MSSQLSERVER\Data and etc
+if ($DATADISK.Substring($DATADISK.Length - 1) -eq "\")
+{
+    $DATADISK=$DATADISK.Substring(0,$DATADISK.Length-1)
+}
+if ($LOGDISK.Substring($LOGDISK.Length - 1) -eq "\")
+{
+    $LOGDISK=$LOGDISK.Substring(0,$LOGDISK.Length-1)
+}
+if ($TEMPDBDISK.Substring($TEMPDBDISK.Length - 1) -eq "\")
+{
+    $TEMPDBDISK=$TEMPDBDISK.Substring(0,$TEMPDBDISK.Length-1)
+}
+if ($BACKUPDISK.Substring($BACKUPDISK.Length - 1) -eq "\")
+{
+    $BACKUPDISK=$BACKUPDISK.Substring(0,$BACKUPDISK.Length-1)
+}
+if ($BinaryDisk.Substring($BinaryDisk.Length - 1) -eq "\")
+{
+    $BinaryDisk=$BinaryDisk.Substring(0,$BinaryDisk.Length-1)
+}
+
+
+$SQLUSERDBDIR = $DATADISK +  "\" + $SqlInstanceName + "\Data"
+$SQLUSERDBLOGDIR=$LOGDISK+ "\" + $SqlInstanceName + "\Data"
+$SQLBACKUPDIR=$BACKUPDISK+ "\" + $SqlInstanceName + "\Backup"
+$SQLTEMPDBDIR=$TEMPDBDISK+ "\" + $SqlInstanceName + "\Data"
+$SQLTEMPDBLOGDIR=$SQLUSERDBLOGDIR
+$INSTALLSQLDATADIR=$DATADISK #+  "\"
+##mapping of shared folders and binary 
+ $INSTANCEDIR=$BinaryDisk+"\Program Files\Microsoft SQL Server" 
+ $INSTALLSHAREDDIR="C:\Program Files\Microsoft SQL Server"
+$INSTALLSHAREDWOWDIR="C:\Program Files (x86)\Microsoft SQL Server" 
+
+#Analysis disk
+
+if ($ASDATADISK -eq "" )
+{
+   $ASDATADISK = $DATADISK
+}
+if ($ASLOGDISK -eq "" )
+{
+   $ASLOGDISK = $LOGDISK
+}
+if ($ASBACKUPDISK -eq "" )
+{
+   $ASBACKUPDISK = $BACKUPDISK
+}
+if ($ASTEMPDISK -eq "" )
+{
+   $ASTEMPDISK = $TEMPDBDISK
+}
+
+if ($ASDATADISK.Substring($ASDATADISK.Length - 1) -eq "\")
+{
+    $ASDATADISK=$ASDATADISK.Substring(0,$ASDATADISK.Length-1)
+}
+if ($ASLOGDISK.Substring($ASLOGDISK.Length - 1) -eq "\")
+{
+    $ASLOGDISK=$ASLOGDISK.Substring(0,$ASLOGDISK.Length-1)
+}
+if ($ASTEMPDISK.Substring($ASTEMPDISK.Length - 1) -eq "\")
+{
+    $ASTEMPDISK=$ASTEMPDISK.Substring(0,$ASTEMPDISK.Length-1)
+}
+if ($ASBACKUPDISK.Substring($ASBACKUPDISK.Length - 1) -eq "\")
+{
+    $ASBACKUPDISK=$ASBACKUPDISK.Substring(0,$ASBACKUPDISK.Length-1)
+}
+
+$ASDATADIR = $ASDATADISK +  "\" + $SqlInstanceName + "\OLAP\Data"
+$ASLOGDIR=$ASLOGDISK+ "\" + $SqlInstanceName + "\OLAP\Log"
+$ASBACKUPDIR=$ASBACKUPDISK+ "\" + $SqlInstanceName + "\OLAP\Backup"
+$ASTEMPDIR=$ASTEMPDISK+ "\" + $SqlInstanceName + "\OLAP\Temp"
+$ASCONFIGDIR=$ASDATADISK + "\" +  $SqlInstanceName +  "\OLAP\Config"
+
+
+
+#print disks
+"----------------"
+Write-FormatedOutput "Parameters disks" -color "White"
+Write-FormatedOutput "SQLBINARY    : $INSTANCEDIR    " -color "White"
+Write-FormatedOutput "SQLDATA      : $SQLUSERDBDIR    " -color "White"
+Write-FormatedOutput "SQLLOG       : $SQLUSERDBLOGDIR " -color "White"
+Write-FormatedOutput "SQLBACKUP    : $SQLBACKUPDIR    " -color "White"
+Write-FormatedOutput "SQLTEMPDB    : $SQLTEMPDBDIR    " -color "White"
+Write-FormatedOutput "SQLTEMPDBLOG : $SQLTEMPDBLOGDIR " -color "White"
+#endregion
+#region CHECK DISK if is 64kb 
+ "----------------"
+Write-FormatedOutput "Check disks" -color "White"
+foreach ($item in $ObjectDisks)
+{
+  
+   foreach ($item1 in $DiskParameters.DISK)
+   {  
+   
+
+       if ($item.Name   -like $item1+"*" -and $item.Blocksize -ne "65536")
+       {
+           Write-FormatedOutput "Disk {0} is not formatted to 65536, but for {1}. Please format to 65536 before installation " $item.Name $item.Blocksize -color "Red"
+           return        
+       }
+       elseif($item.Name   -like $item1+"*" -and $item.Blocksize -eq "65536")
+       {
+       Write-FormatedOutput "Disk {0} is formatted to 65536KB. "$item.Name -color "Green"
+       }
+       
+   } 
+   
+ }
+
+#endregion
+#}
+
+#function check_failover {
+#region Cluster check
+    
+    if ($isCluster)
+    {
+        import-module FailoverClusters
+        Get-Cluster
+        <#  
+        List of on error action values: 
+        
+            $ErrorActionPreference = 0 #is SilentlyContinue
+            $ErrorActionPreference = 1 #is Stop
+            $ErrorActionPreference = 2 #is Continue
+            $ErrorActionPreference = 3 #is Inquire
+            $ErrorActionPreference = 4 #is Ignore
+        #>
+        
+        # Helper functions below
+        
+ 
+        # Execution begins there
+        $ErrorActionPreference = "SilentlyContinue" 
+        
+        # First check if running privileged mode
+        If (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")){
+            Write-Warning "You do not have Administrator rights to run this script!`nPlease re-run this script as an Administrator!";
+            Break;
+        }
+        
+        # Check if failover cluster environment 
+        If ((Get-WMIObject -Class MSCluster_ResourceGroup -Namespace root\mscluster) -ne $null) { 
+            $IsClustered = $true;
+        } Else { 
+            $IsClustered = $false;
+            return;
+        } 
+        
+        If ($IsClustered) {
+            ForEach ($ClusterNode In Get-ClusterNode | Sort-Object Id) {
+                If ($ClusterNode.State -eq "Up") {
+                    CheckInstallationPrereq $ClusterNode.Name
+                }
+            }
+        } Else {
+            CheckInstallationPrereq $env:COMPUTERNAME
+        }
+    }
+
+#endregion
+#}
+
+#function set_arguments_for_installation {
+#param (
+#
+#
+#)
+#region Arguments settings 
+    #features and service accounts 
+    
+    $serviceAccountTemp=""
+    if (![string]::isnullorempty($SqlSvcAccountEngine) -and ![string]::isnullorempty($SqlSvcAccountEngine_pw) )
+           {
+            $serviceAccountTemp=$serviceAccountTemp+" /SQLSVCACCOUNT=`"$SqlSvcAccountEngine`" /SQLSVCPASSWORD=`"$SqlSvcAccountEngine_pw`" "
+           }
+    if (![string]::isnullorempty($SqlSvcAccountAgent) -and ![string]::isnullorempty($SqlSvcAccountAgent_pw) )
+           {
+            $serviceAccountTemp=$serviceAccountTemp+" /AGTSVCACCOUNT=`"$SqlSvcAccountAgent`" /AGTSVCPASSWORD=`"$SqlSvcAccountAgent_pw`" "
+           }
+
+    $AnalysisDisks=""
+    $FeaturesTemp ="/FEATURES=`"SQLENGINE,TOOLS,FULLTEXT"
+
+    if ( $ReportingServices -and ( $SQLVersion -ne "SQL2017" -or $SQLVersion -ne "SQL2019" ))
+       {
+        $FeaturesTemp = $FeaturesTemp + ",RS"
+         if (![string]::isnullorempty($SqlSvcAccountRS) -and ![string]::isnullorempty($SqlSvcAccountRS_pw) )
+           {
+            $serviceAccountTemp=$serviceAccountTemp+" /RSSVCACCOUNT=`"$SqlSvcAccountRS`" /RSSVCPASSWORD=`"$SqlSvcAccountRS_pw`" "
+           }
+        }
+
+
+    if ( $AnalysisServices)
+       {
+        $FeaturesTemp = $FeaturesTemp + ",AS"
+           if (![string]::isnullorempty($SqlSvcAccountAS) -and ![string]::isnullorempty($SqlSvcAccountAS_pw) )
+           {
+            $serviceAccountTemp=$serviceAccountTemp+" /ASSVCACCOUNT=`"$SqlSvcAccountAS`" /ASSVCPASSWORD=`"$SqlSvcAccountAS_pw`" "         
+           }
+           $AnalysisDisks=" /ASSERVERMODE=`"$AnalysisServerMode`" /ASCOLLATION=`"$ASColation`" /ASSYSADMINACCOUNTS=`"$SqlSvcAccountAS`" /ASSYSADMINACCOUNTS=`"$SqlADGroupAccount`" /ASSVCSTARTUPTYPE=`"Automatic`" /ASCONFIGDIR=`"$ASCONFIGDIR`" /ASDATADIR=`"$ASDATADIR`" /ASLOGDIR=`"$ASLOGDIR`" /ASTEMPDIR=`"$ASTEMPDIR`" /ASBACKUPDIR=`"$ASBACKUPDIR`" "
+        }
+    if ( $IntegrationServices)
+       {
+        $FeaturesTemp = $FeaturesTemp + ",IS"
+         if (![string]::isnullorempty($SqlSvcAccountIS) -and ![string]::isnullorempty($SqlSvcAccountIS_pw) )
+           {
+            $serviceAccountTemp=$serviceAccountTemp+" /ISSVCACCOUNT=`"$SqlSvcAccountIS`" /ISSVCPASSWORD=`"$SqlSvcAccountIS_pw`"  "
+           }
+        }
+    $FeaturesTemp = $FeaturesTemp +"`" "
+
+    $AgentStartupType=""
+    $ActionTemp=""
+
+    #cluster setting
+    if ($isCluster)
+    {
+        $ActionTemp = "InstallFailoverCluster"
+        $ClusterArguments = " /SkipRules=`"Cluster_VerifyForErrors`" /FAILOVERCLUSTERDISKS=`"$ClusterDisks`" /FAILOVERCLUSTERGROUP=`"$WindowsClusterName`" /FAILOVERCLUSTERIPADDRESSES=`"$ClusterIP`" /FAILOVERCLUSTERNETWORKNAME=`"$SQLClusterNetworkName`" " 
+        $WindowsClusterName 
+        $SQLClusterNetworkName 
+        $ClusterIP 
+        $ActionTemp
+    }
+    else
+    {
+        $ActionTemp = "Install"
+        $AgentStartupType = "/AGTSVCSTARTUPTYPE=`"Automatic`""
+        $ActionTemp
+    }
+
+
+
+																											
+			 
+  $sqlArguments = "/ACTION=$ActionTemp $AgentStartupType /INDICATEPROGRESS /SECURITYMODE=SQL /SAPWD=`"$SqlSA_pw`" $FeaturesTemp /INSTANCENAME=`"$SqlInstanceName`" /SQLSYSADMINACCOUNTS=`"$SqlADGroupAccount`" $serviceAccountTemp  /IACCEPTSQLSERVERLICENSETERMS /SQLCOLLATION=`"$SqlCollation`" /INSTALLSHAREDDIR=`"$INSTALLSHAREDDIR`" /INSTALLSHAREDWOWDIR=`"$INSTALLSHAREDWOWDIR`" /SQLUSERDBDIR=`"$SQLUSERDBDIR`" /SQLBACKUPDIR=`"$SQLBACKUPDIR`" /SQLTEMPDBDIR=`"$SQLTEMPDBDIR`" /SQLTEMPDBLOGDIR=`"$SQLTEMPDBLOGDIR`" /SQLUSERDBLOGDIR=`"$SQLUSERDBLOGDIR`" /INSTALLSQLDATADIR=`"$INSTALLSQLDATADIR`" /INSTANCEDIR=`"$INSTANCEDIR`" $AnalysisDisks "          
+			 
+		
+			 
+																																																																																																																																																																																																																											
+				 
+
+if ($isCluster)
+{
+          $sqlArguments = "$ClusterArguments "+ $sqlArguments 
+}
+
+
+if ( $QuiteMode) 
+     {
+        $sqlArguments = "/q "+ $sqlArguments
+    }
+
+   if (![string]::isnullorempty($InstallationKey))
+   {
+    $sqlArguments = $sqlArguments+ " /PID=`"$InstallationKey`" "
+   }
+
+
+
+#endregion
+#}
+
+
+
+##Execution
+##create_disks_folders
+##check_failover
+
+
+##execution
+
+# Verify accounts
+    Write-FormatedOutput "Checking accounts provided... " -color "White"
+    try {
+       verify_existence_of_account $SqlSvcAccountEngine $SqlSvcAccountEngine_pw "DBEngine" 
+       verify_existence_of_account $SqlSvcAccountAgent $SqlSvcAccountAgent_pw   "SQLAgent"
+       #verify_existence_of_account $SqlSvcAccountRS $SqlSvcAccountRS_pw
+       #verify_existence_of_account $SqlSvcAccountAS $SqlSvcAccountAS_pw
+       #verify_existence_of_account $SqlSvcAccountIS $SqlSvcAccountIS_pw
+    } catch {
+        Write-FormatedOutput "Error occured: " $_.Exception.Message -color "Red"
+    }
+
+
+
+
+#Print variables / path of server and sql arguments 
+ "----------------"
+Write-FormatedOutput "Path of installation media is {0}" $InstFileSQLServer -color "white"
+
+						#https://jira.etb.tieto.com/browse/DBPS-58
+                              if (-not (test-path $InstFileSQLServer\UpdateSource)) 
+                              {
+                                    try
+                                    {
+                                         New-Item $InstFileSQLServer\UpdateSource -ItemType Directory -ea Stop  | out-null
+                                         Write-FormatedOutput "UpdateSource folder was created" -color "Green"
+                                         $sqlArguments =$sqlArguments+" /Updatesource=.\UpdateSource /UpdateEnabled=`"1`""
+                                    }
+                                    catch
+                                    {
+                                         Write-FormatedOutput "UpdateSource folder cannot be created" -color "Red"
+                                    }
+                                    
+                                   
+                              }
+                              else 
+                              {
+                               $sqlArguments =$sqlArguments+" /Updatesource=.\UpdateSource /UpdateEnabled=`"1`""
+                               Write-FormatedOutput "UpdateSource folder already created" -color "Yellow"
+                              }
+
+ "----------------"
+
+
+
+Write-FormatedOutput  "Install arguments"
+Write-FormatedOutput  $sqlArguments.Replace('{','{{').Replace('}','}}') 
+$sqlArguments1=$sqlArguments
+
+
+#### Below need to be uncommented for Start Process / sometimes possible problem and need with -Verb RunAs, but this can cause also problem with 2times execution this script :D 
+"----------------"
+if ( !$StartOnlyCheckParameters)
+       {
+        Write-FormatedOutput "Installing {0} ... " $SqlInstanceName  -color "White"
+        $process = [System.String]::Format("{0}\setup.exe", $InstFileSQLServer)
+         $result = Start-Process  $process  -WorkingDirectory  $InstFileSQLServer -ArgumentList $sqlArguments1 -Wait -PassThru -Verbose -NoNewWindow 
+         Write-FormatedOutput "ExitCode: {0}" $result.ExitCode -color "White"
+             if ($result.ExitCode -eq 0 -or $result.ExitCode -eq 3010) {
+                     Write-FormatedOutput "SQL Instance {0} installed, but reboot required > Check ." $InstanceName  -color "Green"
+                    
+                }
+
+                 else {
+                        Write-FormatedOutput "SQL Instance {0} installation failed." $InstanceName -color "Red"
+                        return 1
+                     }
+    
+    }
+else {Write-FormatedOutput "Checking parameters only! {0} ... " $SqlInstanceName  -color "Yellow"}
+}
+
+
+ Write-FormatedOutput "Configuration {0} ... " $SqlInstanceName  -color "White"
+#region post configuration
+       
+       $powershell = Get-Host
+       $powershellVersion = [string]($powershell.version.Major.ToString() + "." + $powershell.Version.Minor.ToString())
+       $powershellVersion = $powershell.version.Major
+
+       #reload modules after sql install 
+       $env:PSModulePath = [System.Environment]::GetEnvironmentVariable("PSModulePath","Machine")
+       Import-Module "SQLPS" -DisableNameChecking
+
+        
+        #for checking all ports from instances on server
+        function FN_Get-SQLIpPort 
+          { 
+
+<#  
+ .SYNOPSIS
+  Queries wmi to see all enabled port and ip
+ 
+  .DESCRIPTION
+  Uses  wmi to see all enabled port and ip
+ 
+ .Parameter serverName 
+  Name of the server to query 
+ 
+ .Example 
+   Get-SQLIpPort myserver instance
+#> 
+
+
+    param(
+    [string]$serverName = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName').ComputerName ,
+    [string]$InstanceName ="",
+    [int] $tcpPortTemp = ""
+    )
+  
+  
+      if ($InstanceName.Length -eq 0)
+      {
+          $tempInstance='*MSSQL*'
+      }  
+      else { $tempInstance='*MSSQL*'+$InstanceName} 
+       # Store Current Location to return to it when we're done
+Push-Location;
+
+# Let's get all the possible hives in the registry on a given system
+# We'll use Where-Object to filter down to only those hives which begin with MSSQL
+# This gets rid SSAS, SSIS, and SSRS for versions of SQL Server 2008 and up. It also
+# gets rid of any hives that are under "Microsoft SQL Server" that aren't for instance
+# configuration (or at least not what we're looking for)
+
+
+Get-ChildItem -Path 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server' | Where-Object {$_.Name -like $tempInstance} | foreach {
+    
+    # Get Instance Name
+    $props = Get-ItemProperty -path $_.PSPath;
+
+
+    $IPPortArray=@()
+    # If there is no default value, this isn't an instance. We need to trap in case the
+    # property doesn't exist
+    try {
+        $InstanceName = $props.psobject.Properties["(default)"].value;
+    }
+    catch {
+        $InstanceName = "";
+    }
+    
+    # If there is a valid instance name, proceed farther
+    if ($InstanceName.length -gt 0 ) {
+
+        # Navigate the child keys 
+        foreach ($key in Get-ChildItem -path $_.pspath -erroraction 'silentlycontinue'){
+
+            # Find entries belonging to actual database engine instances
+            if ($key.name -like "*MSSQLServer*")
+            {
+           
+                # Navigate to the key where the TCP settings are stored
+                Set-Location -path $key.pspath;
+                cd .\SuperSocketNetLib\tcp -ErrorAction SilentlyContinue;
+
+                # Ensure we're only reporting against the right keys
+
+                $TCPKey = Get-Location;
+
+                if ($TCPKey -like '*SuperSocketNetLib*') {
+
+                    $TCPProps = Get-ItemProperty $TCPKey;
+
+                    # Find out if TCP is enabled
+                    $Enabled = $TCPProps.psobject.Properties["enabled"].value;
+                    
+                    # Begin the reporting
+                   # Write-Host "Instance Name: $InstanceName";
+                   # Write-Host "------------------------------------------------------------------------------";
+
+                    $ObjectInstance= NEW-OBJECT PSObject 
+                    $ObjectInstance | Add-Member NoteProperty "Name" "InstanceName" 
+                    $ObjectInstance | Add-Member NoteProperty "Value" $InstanceName 
+                    $IPPortArray += $ObjectInstance 
+               
+                    # If TCP is not enabled, there's point finding all the ports. Therefore, we check.
+                    if ($Enabled -eq 1)
+                    {
+                        foreach ($Key in gci $TCPKey)
+                        {
+                            $IPprops = Get-ItemProperty $Key.pspath;
+                            $IPAddress = $IPProps.psobject.Properties["IpAddress"].Value;
+                            $IPEnabled = $IPProps.psobject.Properties["Enabled"].Value;
+                            # For the Key IPAll, there is no IPAddress value. therefore, we trap for it.
+                            if ($IPAddress -eq $null -or $IPEnabled -eq 1)
+                            {
+                            if ($IPAddress -eq $null)
+                                    {$IPAddress = "All"}
+
+                         #   Write-Host "    IP Address:    $IPAddress";
+                         #   Write-Host "    Dyn. Ports: ", $IPProps.psobject.Properties["TcpDynamicPorts"].Value;
+                         #   Write-Host "    Sta. Ports: ", $IPProps.psobject.Properties["TcpPort"].Value;
+                            
+                            $ObjectIP   = NEW-OBJECT PSObject 
+                            $ObjectIP | Add-Member NoteProperty "Name" "IP Address:" 
+                            $ObjectIP | Add-Member NoteProperty "Value" $IPAddress 
+                            $IPPortArray += $ObjectIP
+
+                            $ObjectPort   = NEW-OBJECT PSObject 
+                            $ObjectPort | Add-Member NoteProperty "Name" "Dynamic Port:" 
+                            $ObjectPort | Add-Member NoteProperty "Value" $IPProps.psobject.Properties["TcpDynamicPorts"].Value;
+                            $IPPortArray += $ObjectPort 
+
+                             $ObjectPort   = NEW-OBJECT PSObject 
+                            $ObjectPort | Add-Member NoteProperty "Name" "Static Port:" 
+                            $ObjectPort | Add-Member NoteProperty "Value" $IPProps.psobject.Properties["TcpPort"].Value;
+                            $IPPortArray += $ObjectPort 
+
+                            }                                                
+                    
+                        }
+                    } else {
+                      #  Write-Host "  TCP not enabled."
+                    }
+
+                   # Write-Host "------------------------------------------------------------------------------";
+                   # Write-Host "";
+                }
+            }
+        }
+    }  
+}
+return $IPPortArray | Where-object {$_.Name -match "Static Port:" -or $_.Name -match "Dynamic Port:"} 
+# Return to original location
+Pop-Location;
+   
+}<#Close SQLIpPort#>;
+        
+        #default TCP port , 
+
+        if ([string]::IsNullOrEmpty($SqlTCPPort))
+        {
+           [int]$tcpPort = 50001
+        }
+        else 
+        {
+            [int]$tcpPort = $SqlTCPPort
+        }
+
+        $Ports=@()
+        #get all instances on server
+        $inst = (get-itemproperty 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server').InstalledInstances  
+        
+        #loop for check all instances and get information 
+        foreach ($i in $inst) 
+            {  
+                if ($i -ne $SqlInstanceName    )
+                {
+                      $Ports +=FN_Get-SQLIpPort -InstanceName $i -tcpPortTemp $SqlTCPPort 
+                }
+              
+            }
+        #loop for check  all ports for instance, if already exist will be +1
+        foreach ($itemPort in $Ports.Value)
+        {
+               if ($itemPort -match  $tcpPort )
+               {
+                    $tcpPort=  $tcpPort+ 1
+
+                    if ($tcpPort -eq "1434")
+                    {
+                        $tcpPort=  $tcpPort+ 1
+                    }
+                   
+               }
+        }
+        
+        function FN_setTCPport 
+        {
+         Param
+            (
+                [Parameter(Mandatory = $True) ] [String] $InstanceName ="",
+                [Parameter(Mandatory = $True) ] [String] $tcpPort =""      
+            )
+               [System.Reflection.Assembly]::LoadWithPartialName("Microsoft.SqlServer.SqlWmiManagement") | out-null
+                $m = New-Object ('Microsoft.SqlServer.Management.Smo.Wmi.ManagedComputer') $env:COMPUTERNAME
+            
+            
+                $regex = [regex] "44.\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){2}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b" #Temp - has to be changed
+                $ip1=(Get-WmiObject -class "Win32_NetworkAdapterConfiguration" |  %{$regex.Matches($_.IPAddress)}).Value #Temp - has to be changed
+                $ip2= "N/A" #TBD
+            
+                $uri = "ManagedComputer[@Name='$env:COMPUTERNAME']/ServerInstance[@Name='$InstanceName']/ServerProtocol[@Name='Tcp']"
+                $Tcp = $m.GetSmoObject($uri)
+                $Tcp.ProtocolProperties["Enabled"].Value = $true
+                $Tcp.ProtocolProperties["ListenOnAllIPs"].Value = $true
+                        
+                foreach ($tcpAddress in $Tcp.ipaddresses) {
+                    switch ($tcpAddress.IPAddress.IPAddressToString)
+                    {
+                        $ip1 {
+                            $uri2 = $tcp.urn.Value + "/IPAddress[@Name='" + $tcpAddress.Name + "']"
+                            $m.GetSmoObject($uri2).IPAddressProperties[1].Value = [bool]1
+                            $m.GetSmoObject($uri2).IPAddressProperties[3].Value = ""
+                            $m.GetSmoObject($uri2).IPAddressProperties[4].Value = "$tcpPort"
+                        }
+                        "0.0.0.0" {
+                            $uri2 = $tcp.urn.Value + "/IPAddress[@Name='" + $tcpAddress.Name + "']"
+                            $m.GetSmoObject($uri2).IPAddressProperties[0].Value = ""
+                            $m.GetSmoObject($uri2).IPAddressProperties[1].Value = "$tcpPort"
+                        }             
+                        $ip2 {
+                            $uri2 = $tcp.urn.Value + "/IPAddress[@Name='" + $tcpAddress.Name + "']"
+                            $m.GetSmoObject($uri2).IPAddressProperties[1].Value = [bool]1
+                            $m.GetSmoObject($uri2).IPAddressProperties[3].Value = ""
+                            $m.GetSmoObject($uri2).IPAddressProperties[4].Value = "$tcpPort"
+                        }
+                    }
+                }
+                $Tcp.alter()
+
+               Write-FormatedOutput "Set TCP Port {0} on Instance {1} ... "$tcpPort  $SqlInstanceName  -color "Green"
+
+               netsh int ipv4 set dynamicport tcp start=50015 num=15521 
+             
+               Write-FormatedOutput "Change int ipv4 set dynamicport tcp start=50015 num=15521 ... "  -color "Green"
+           
+        }<#Close FN_setTCPport#>;
+
+
+     
+        #firewall methods for powershell 2 and higher 
+        function isFirewallPortOpenPS2 {
+    param( [int] $port )
+    $fw = New-Object -ComObject hnetcfg.fwpolicy2 
+    if ($fw.Rules | Where {$_.LocalPorts -eq $port }) {
+        return [bool]$true
+    } else {
+        return [bool]$false
+    }
+}
+        function existsFirewallRulePS2 {
+    param( [string] $name )
+    $fw = New-Object -ComObject hnetcfg.fwpolicy2 
+    if ($fw.Rules | Where { $_.Name -eq $name }) {
+        return [bool]$true
+    } else {
+        return [bool]$false
+    }
+}
+        function Add-FirewallRulePS2 {
+    param(
+        [string] $name,
+        [int] $port,
+        [int] $protocol
+    )
+    $fw = New-Object -ComObject hnetcfg.fwpolicy2 
+    if (isFirewallPortOpenPS2 $port -or existsFirewallRulePS2 $name) {
+        Write-FormatedOutput "Rule Already Exists or Port Already Open $name  $port" -color "Yellow"
+    } else {
+        $rule = New-Object -ComObject HNetCfg.FWRule
+
+        $rule.Name = $name
+        $rule.Protocol = $protocol # 6=NET_FW_IP_PROTOCOL_TCP and 17=NET_FW_IP_PROTOCOL_UDP
+        $rule.LocalPorts = $port
+        $rule.Enabled = $true
+        $rule.Grouping = "MSSQL"
+        $rule.Profiles = 7 # all
+        $rule.Action = 1 # NET_FW_ACTION_ALLOW
+        $rule.EdgeTraversal = $false
+
+        $fw.Rules.Add($rule)
+        Write-FormatedOutput "New-NetFirewallRule $name success " -color "Green"
+    }
+}
+        
+        function Add-FirewallRule {
+    param(
+        [string] $RuleName ,
+        [string] $InstanceName,
+        [int] $port
+    )
+ 
+ $type =""
+ $type =""
+
+  switch ($RuleName) {
+   "SQL Server $InstanceName"   {$type ="TCP" ;break}
+   "SQL Browser"  {$type ="UDP"  ;break}
+   "SQL Endpoint" {$type ="TCP"  ;break}
+  }
+
+
+
+
+    if ([string]::IsNullOrEmpty((Get-NetFirewallRule -Name "$RuleName ($type $port)" -ErrorAction SilentlyContinue))) {
+
+        New-NetFirewallRule -Name "$RuleName ($type $port)" -DisplayName "$RuleName ($type $port)" -Description "MSSQL $RuleName port" -Group "MSSQL" -Protocol $type -LocalPort $port -Enabled True -Profile Any -Action Allow | Out-Null 
+        Write-FormatedOutput "New-NetFirewallRule $RuleName success " -color "Green"
+        Write-FormatedOutput "Rule Name $RuleName ($type $port) dir=in action=allow protocol=$type localport=$port profile=domain " -color "White"    
+    }
+    else 
+    {
+        Write-FormatedOutput "New-NetFirewallRule $RuleName already exists " -color "Yellow"
+        Write-FormatedOutput "Rule Name $RuleName ($type $port) dir=in action=allow protocol=$type localport=$port profile=domain " -color "White"    
+    }
+}
+
+        function FN_setFirewall
+        {
+          Param
+            (
+                [Parameter(Mandatory = $True) ] [String] $InstanceName ="",
+                [Parameter(Mandatory = $True) ] [String] $tcpPort =""      
+            )
+       
+          
+             ##dynamic port change and firewall 
+    $ports = New-Object PSObject
+    $number = 1
+
+    try {
+                                   
+                 if ($powershellVersion -gt 2 ) 
+                 {
+                  Add-FirewallRule -RuleName "SQL Server $InstanceName" -InstanceName $InstanceName -Port $tcpPort
+                 }
+                 else 
+                 {
+                   Add-FirewallRulePS2 -Name "SQL Server  $InstanceName (TCP $tcpPort)" -port $tcpPort -protocol 6
+                 }
+
+                #$item.Value
+                $number++            
+        
+     }
+    catch {
+        $connection.Close()
+        $ErrorMessage = $_.Exception.Message
+        Write-FormatedOutput "New-NetFirewallRule Instance failed exception >>> $ErrorMessage" -color "Red"
+    } 
+        
+    try {
+        if ($powershellVersion -gt 2 ) 
+            {
+                 Add-FirewallRule -RuleName "SQL Browser" -InstanceName $InstanceName -Port 1434
+            }
+            else 
+            {
+                 Add-FirewallRulePS2 -Name "SQL Browser (UDP 1434)" -port 1434 -protocol 17
+            }
+      
+    }
+    catch {
+        $connection.Close()
+        $ErrorMessage = $_.Exception.Message
+        Write-FormatedOutput "New-NetFirewallRule SQL Browser failed exception >>> $ErrorMessage" -color "Red"
+    } 
+
+    try {
+        if ($powershellVersion -gt 2 ) 
+          {
+                Add-FirewallRule -RuleName "SQL Endpoint" -InstanceName $InstanceName -Port 5022
+          }
+          else 
+          {
+                Add-FirewallRulePS2 -Name "SQL Endpoint (TCP 5022)" -port 5022 -protocol 6
+          }
+    }
+    catch {
+        $connection.Close()
+        $ErrorMessage = $_.Exception.Message
+        Write-FormatedOutput "New-NetFirewallRule SQL Endpoint failed exception >>> $ErrorMessage" -color "Red"
+    } 
+
+
+
+
+        }<#Close FN_setFirewall#>;
+
+        #setting of LocalPolicy
+        function Trans-FromSID 
+        {
+  param
+  (
+    [Parameter( Position=0,
+                Mandatory=$True)]
+    [ValidateLength(3,80)]
+    [string]$SID
+  )
+
+  process {
+    $objSID = New-Object System.Security.Principal.SecurityIdentifier ($SID)
+    $objUser = $objSID.Translate( [System.Security.Principal.NTAccount] )
+    $objUser.Value
+      }
+    }<#Close Trans-FromSID #>;
+
+        function Trans-ToSID
+        {
+  param
+  (
+    [Parameter( Position=0,
+                Mandatory=$True)]
+    [ValidateLength(3,80)]
+    [string]$AccToSid
+  )
+
+  process {
+    $objUser = New-Object System.Security.Principal.NTAccount ($AccToSid)
+    $objSID = $objUser.Translate( [System.Security.Principal.SecurityIdentifier] )
+    $objSID.Value
+        }
+    }<#Close Trans-ToSID #>;
+
+        function LocalPolicyCFG_Export 
+        {
+  [cmdletbinding()]
+  param
+  (
+	[ValidateLength(3,200)]
+	[string]$ExpPath = "c:\temp\LocalPolicy.ini"
+  )
+
+  process   {
+			$Split = $ExpPath.split("\")
+			$DirPath = [string]::join("\",$($Split | select -first $($Split.count - 1) ))
+			If (!(Test-Path $DirPath))
+			{
+				New-Item -path $DirPath -ItemType directory
+				New-Item -path $(Join-Path $DirPath "LocalPolicyBak") -ItemType directory
+			}
+			Else
+			{
+				If (!(Test-Path $(Join-Path $DirPath "LocalPolicyBak")))
+					{
+						New-Item -path $(Join-Path $DirPath "LocalPolicyBak") -ItemType directory
+					}
+				Else
+					{
+						If ((Test-Path $ExpPath))
+						{
+							Copy-Item -Path $ExpPath -Destination $(Join-Path $DirPath "LocalPolicyBak")
+							Rename-Item -Path $($(Join-Path $DirPath "LocalPolicyBak") + "\" + $($Split | select -last 1)) -NewName $($((get-date).ToString("yyMMddhhmmss")) + '_OldFile_' + $($Split | select -last 1)) -Force
+						}
+					}
+			}
+			SecEdit /export /cfg $($ExpPath) /areas USER_RIGHTS
+			
+			Copy-Item -Path $ExpPath -Destination $(Join-Path $DirPath "LocalPolicyBak")
+			Rename-Item -Path $($(Join-Path $DirPath "LocalPolicyBak") + "\" + $($Split | select -last 1)) -NewName $($((get-date).ToString("yyMMddhhmmss")) + '_BAK_' + $($Split | select -last 1)) -Force
+			}### End Process of Function
+	}<#Close LocalPolicyCFG_Export #>;
+	
+        function LocalPolicyCFG_AddPriv 
+        {
+  [cmdletbinding()]
+  param
+  (
+    [Parameter( Position=0,
+                Mandatory=$True )]
+	[ValidateLength(3,120)]
+	[string]$Member,
+	[Parameter( Mandatory=$True )]
+	[ValidateSet(
+	'SeBatchLogonRight',
+	'SeServiceLogonRight',
+	'SeImpersonatePrivilege',
+	'SeTcbPrivilege',
+	'SeLockMemoryPrivilege',
+    'SeManageVolumePrivilege',
+    'SeSecurityPrivilege',
+    'SeDebugPrivilege',
+    'SeBackupPrivilege',
+    'SeIncreaseQuotaPrivilege',
+	ignorecase=$False)]
+	[string]$LP_USER_RIGHTS,
+    [Parameter( Mandatory=$False )]
+	[Switch]$LocalMember,
+	[ValidateLength(3,255)]
+	[string]$ExpPath = "c:\temp\LocalPolicy.ini"
+  )
+
+  process {
+
+        [String]$DecMember = $null
+        switch ($LocalMember.ispresent)
+        {
+            $true {$DecMember = $Member}
+            $false {$DecMember = "*$(Trans-ToSID $($Member) -ErrorAction SilentlyContinue)"}
+        }
+		
+		IF (![string]::IsNullOrEmpty($DecMember))
+		    {
+		        $ContForEdit = $null
+		        $ContForEdit = Get-Content $($ExpPath)
+		
+		        $ConfContent = $null
+		        $ConfContent = $ContForEdit | where {$_ -like "$($LP_USER_RIGHTS) =*"}
+		        IF (![string]::IsNullOrEmpty($($ConfContent)))
+		            {
+                        #$ImpSIDs = $ConfContent.Trim("$($LP_USER_RIGHTS) =").split(",")
+                        $ImpSIDs = $ConfContent.Substring("$($LP_USER_RIGHTS) =".length).split(",") | %{ $_.trimstart(" ").Trimend(" ") }
+
+#$ImpSIDs
+		                IF ([string]::IsNullOrEmpty($($ImpSIDs | where {$_ -eq $DecMember})))
+		                    {
+                                $ImpMembers = New-Object System.Collections.ArrayList
+                                $ImpSids | ForEach-Object {$ImpMembers.add($_) | Out-Null}
+                                $ImpMembers.add($DecMember) | Out-Null
+
+#$ImpMembers
+                                $SeImpContent = "$($LP_USER_RIGHTS) = $([string]::Join(',',$($ImpMembers)))"
+		                        set-Content -Value $($ContForEdit.replace($($ConfContent),[string]$($SeImpContent))) -Path $($ExpPath)
+		                    }
+		            }
+		        Else
+		            {
+						$ConCount = $ContForEdit.count
+						$ContEdit = $ContForEdit[0..$($ConCount -4)]
+						
+						$ContEdit > $($ExpPath)
+						"$($LP_USER_RIGHTS) = $($DecMember)" >> $($ExpPath) 
+						$($ContForEdit[$($ConCount -4)..$($ConCount -1)]) >> $($ExpPath)
+		            }
+		    }
+		Else
+		    {
+		        Throw "User Not found $($Member)"
+		    }
+		}### End Process of Function
+	}<#Close LocalPolicyCFG_AddPriv #>;
+
+        function LocalPolicyCFG_RemovePriv 
+        {
+  [cmdletbinding()]
+  param
+  (
+    [Parameter( Position=0,
+                Mandatory=$True )]
+	[ValidateLength(3,120)]
+	[string]$Member,
+	[Parameter( Mandatory=$True )]
+	[ValidateSet(
+	'SeBatchLogonRight',
+	'SeServiceLogonRight',
+	'SeImpersonatePrivilege',
+	'SeTcbPrivilege',
+	'SeLockMemoryPrivilege',
+    'SeManageVolumePrivilege',
+    'SeSecurityPrivilege',
+    'SeDebugPrivilege',
+    'SeBackupPrivilege',
+    'SeIncreaseQuotaPrivilege',
+    ignorecase=$False)]
+	[string]$LP_USER_RIGHTS,
+    [Parameter( Mandatory=$False )]
+	[Switch]$LocalMember,
+	[ValidateLength(3,255)]
+	[string]$ExpPath = "c:\temp\LocalPolicy.ini"
+  )
+
+  process {
+
+        #[string]$DecMember = $null
+        [String]$DecMember = $null
+        switch ($LocalMember.ispresent)
+        {
+            $true {$DecMember = $Member}
+            $false {$DecMember = "*$(Trans-ToSID $($Member) -ErrorAction SilentlyContinue)"}
+        }
+#$DecMember
+		IF (![string]::IsNullOrEmpty($DecMember))
+		    {
+		        $ContForEdit = $null
+		        $ContForEdit = Get-Content $($ExpPath)
+		
+		        $ConfContent = $null
+		        $ConfContent = $ContForEdit | where {$_ -like "$($LP_USER_RIGHTS) =*"}
+#$ConfContent
+		        IF (![string]::IsNullOrEmpty($($ConfContent)))
+		            {
+		                                   
+                        $ImpSIDs = $ConfContent.Substring("$($LP_USER_RIGHTS) =".length).split(",") | %{ $_.trimstart(" ").Trimend(" ") }
+
+		                IF (![string]::IsNullOrEmpty($($ImpSIDs | where {$_ -eq $DecMember})))
+		                    {
+                                $ImpMembers = New-Object System.Collections.ArrayList
+                                $ImpSids | ForEach-Object {$ImpMembers.add($_) | Out-Null}
+#$ImpSids 
+
+                                $ImpMembers.Remove($DecMember) | Out-Null
+#$ImpMembers
+		                        $SeImpContent = "$($LP_USER_RIGHTS) = $([string]::Join(',',$($ImpMembers)))"
+		                        set-Content -Value $($ContForEdit.replace($($ConfContent),[string]$($SeImpContent))) -Path $($ExpPath)
+		                    }
+                        Else
+                            {
+                                Write-Host "User $($Member) Not found within $($LP_USER_RIGHTS)"
+                            }
+		            }
+		        Else
+		            {
+						Write-Host "User rights $($LP_USER_RIGHTS) not found" 
+		            }
+		    }
+		Else
+		    {
+		        Write-Host "User\Group $($Member) Not found"
+		    }
+		}### End Process of Function
+	}<#Close LocalPolicyCFG_RemovePriv #>;
+
+        function LocalPolicyCFG_Configure 
+        {
+  [cmdletbinding()]
+  param
+  (
+	[ValidateLength(3,200)]
+	[string[]]$ExpPath = "c:\temp\LocalPolicy.ini"
+  )
+
+  process   {
+			
+			If (Test-Path $ExpPath)
+			{
+				Try
+					{
+						SecEdit /configure /db secedit.sdb /cfg $($ExpPath) /areas USER_RIGHTS
+					}
+				Catch
+					{
+						$_.Exception.Message 
+					}
+			}
+			Else
+			{
+				WriteErr "LocalPolicy was not applied as config for import is missing on location $($ExpPath)"
+			}
+			}### End Process of Function
+	}<#Close LocalPolicyCFG_Configure #>;
+        
+        
+        function FN_SetDataSourceForSQLOpenCon
+         {
+    [OutputType([String])]
+  Param
+    (
+        [Parameter(Mandatory = $True) ] [String] $InstanceName ="",
+        [Parameter(Mandatory = $False) ] [String] $ClusterSQLName ="",
+        [Parameter(Mandatory = $True) ] [String] $IsCluster =$false,
+        [Parameter(Mandatory = $False) ][string] $serverName = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName').ComputerName
+      
+    )
+         ##set datasource
+                   IF ( $InstanceName -ne "MSSQLSERVER")
+                       {                 
+                           if ( $isCluster  -eq $true -and ![string]::isnullorempty($ClusterSQLName) )
+                            { 
+                                $dataSource=$ClusterSQLName+'\'+$InstanceName
+                               # $dataSource
+                               # "Cluster"
+                            }
+                            else {
+                                $dataSource=$serverName+'\'+$InstanceName
+                               # $dataSource
+                               # "STandalone or ag"
+                            }                           
+                       }
+                  else { 
+                           if ( $isCluster  -eq $true -and ![string]::isnullorempty($ClusterSQLName))
+                            {
+                                $dataSource=$ClusterSQLName
+                                #$dataSource
+                               #"Cluster1"
+                            }
+                            else {
+                                $dataSource=$serverName
+                               # $dataSource
+                                #"STandalone or ag1"
+                            }
+                       }
+         return [string]   $dataSource
+    }<#Close FN_SetDataSourceForSQLOpenCon#>;
+
+        function FN_SQLopenCon 
+        {
+    param
+        (
+            [Parameter(Mandatory = $True,  Position = 0) ] [System.String] $ConString,
+            [Parameter(Mandatory = $False) ]               [System.Int32]  $ConTimeout = 30,
+            [Parameter(Mandatory = $False) ]   [String]  $userId = "sa",
+            [Parameter(Mandatory = $False) ]   [String]  $userPass 
+        )
+    $connectionString =  "Data Source='$($ConString)';Integrated Security=false;User ID=$($userId); Password=$($userPass); Initial Catalog='master';Connect Timeout='$($ConTimeout)'"
+    $sqlConnection =new-object system.data.SqlClient.SQLConnection($connectionString)
+    $sqlConnection.Open()
+
+    return [System.Data.SqlClient.SqlConnection]$sqlConnection
+
+    }<#Close FN_SQLopenCon#>;
+        
+        function FN_SetSQLConfig
+      {
+    [OutputType([String])]
+  Param
+    (
+        [Parameter(Mandatory = $True) ] [String] $InstanceName ="",
+        [Parameter(Mandatory = $True) ] [String] $IsCluster =""
+      
+    )
+       
+                    #get instance names for queries below like parameter   
+                    $p =(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL').$InstanceName 
+           
+                    ##set temp variables for getting right name of instance for registry path
+                  
+																																										   
+                    $tempInstance=[Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL",$InstanceName,$Null)
+                   
+                    $ClusterName=""
+                    $ClusterSQLName=""
+
+                      
+                     
+                        #if instance is clustered should be use this path in registry for get cluster name and nodes
+                        if ( $isCluster -eq "True")
+                        {                    
+                                   Import-Module FailoverClusters
+                                   $ClusterName =(Get-ItemProperty "HKLM:\Cluster").ClusterName
+																			   
+							try
+                          {
+                               $IsHadrEnabled= (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$tempInstance\MSSQLServer\HADR").HADR_Enabled  
+                          }
+                          catch 
+                          {
+                              $IsHadrEnabled=0
+                          }		   
+                          if ( $IsHadrEnabled -eq 0)
+                          {       
+                             $ClusterSQLName =(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$tempInstance\Cluster").ClusterName ##TODO PATH 
+                           
+                          }	
+										 
+                                  
+                        }
+                         else 
+                        {
+                                 $ClusterName =""
+                                 $ClusterSQLName =""
+                        }
+         
+         
+                     ##Get datasource based on instance.
+
+   #### create random password for sql temp deploy
+       # Generate  password
+    Add-Type -AssemblyName System.Web
+    $new_pwd = [System.Web.Security.Membership]::GeneratePassword(18, 10)
+    #$new_sapwd = $new_sapwd -creplace "[^a-zA-Z0-9]","_"
+    $new_pwd = -join ((65..90) + (97..122) + (48..57)  | Get-Random -Count 18 | % {[char]$_})
+    $password= $new_pwd
+       
+
+
+            ######################SETTING OF SQL COMMAND #####################################
+    #region SQLCommand
+        $sqlCommand = "  /*
+	Description: Script is based on best practices , this script is only after installation in case during installation will fail, not for transition
+                - create TE_tempdeploy login
+				- Optimize tempdb according to best practices
+	         	- Change initial size and autogrowth on model and tempdb database based on our agreed standard
+				- Setting of Max and Min SQL memory
+				- Setting of MaxDop
+				- Setting of Error and jobs logs
+				- Setting of Backup compression
+	Created: jan.belej@tieto.com
+*/                    
+
+ BEGIN
+                        	DECLARE
+                        		@cpu_count INT,
+                        		@file_count INT,
+                        		@logical_name SYSNAME,
+                        		@file_name NVARCHAR(520),
+                        		@physical_name NVARCHAR(520),
+                        		@alter_command NVARCHAR(MAX)
+                        
+                        	PRINT 'STEP : Databases tempdb and model optimization'
+                        
+                        	SELECT @physical_name = physical_name FROM tempdb.sys.database_files WHERE name = 'tempdev'
+                        	SELECT @file_count = COUNT(*) FROM tempdb.sys.database_files WHERE type_desc ='ROWS'
+                        	SELECT @cpu_count = cpu_count FROM sys.dm_os_sys_info
+                        
+                        	-- alter tempdb database files to fit MS best practices
+                        	IF @cpu_count < 8 -- less than 8 CPUs
+                        	BEGIN
+                        		SET  @cpu_count=@cpu_count
+                        		WHILE @file_count < @cpu_count 
+                        		BEGIN
+                        			SELECT @logical_name = 'tempdev_' + CAST(@file_count+1 AS nvarchar)
+                        			SELECT @file_name = REPLACE(@physical_name, 'tempdb.mdf', @logical_name + '.ndf')
+                        			SELECT @alter_command = 'ALTER DATABASE [tempdb] ADD FILE ( NAME =N''' + @logical_name + ''', FILENAME =N''' + @file_name + ''', SIZE = 512MB, FILEGROWTH = 256MB )'
+                        			--PRINT @alter_command
+                        			EXEC sp_executesql @alter_command
+                        			SELECT @file_count = @file_count + 1
+                        		END
+                        	END
+                        	ELSE
+                        	BEGIN 
+                        		SET @cpu_count=8 -- set 8 tempdb file (according to MS recommendation)
+                        		WHILE @file_count < @cpu_count
+                        		BEGIN
+                        			SELECT @logical_name = 'tempdev_' + CAST(@file_count+1 AS nvarchar)
+                        			SELECT @file_name = REPLACE(@physical_name, 'tempdb.mdf', @logical_name + '.ndf')
+                        			SELECT @alter_command = 'ALTER DATABASE [tempdb] ADD FILE ( NAME =N''' + @logical_name + ''', FILENAME =N''' + @file_name + ''', SIZE = 512MB, FILEGROWTH = 256MB )'
+                        			--PRINT @alter_command
+                        			EXEC sp_executesql @alter_command				
+                        			SELECT @file_count = @file_count + 1
+                        		END
+                        	END
+                        	ALTER DATABASE tempdb MODIFY FILE (NAME = tempdev, SIZE = 512MB, filegrowth=256Mb);
+                        	ALTER DATABASE tempdb MODIFY FILE (NAME = templog, SIZE = 512MB, filegrowth=256Mb);
+                        		 
+                        		DECLARE  @dtempdbFileName nvarchar(max)
+                        		 declare @sql varchar(max)
+                        
+                        		 DECLARE TempdDBSizeAutoGrow CURSOR FOR   
+                        			 select name	 from tempdb.sys.database_files  
+                        				OPEN TempdDBSizeAutoGrow  	
+                        					FETCH NEXT FROM TempdDBSizeAutoGrow   
+                        					INTO  @dtempdbFileName  
+                        						WHILE @@FETCH_STATUS = 0  
+                        							BEGIN
+                        									BEGIN
+                        										set @sql = 'ALTER DATABASE tempdb MODIFY FILE (NAME = '+@dtempdbFileName+', SIZE = 512MB, filegrowth=256Mb)'
+                        										exec (@sql)
+                        									END
+                        								FETCH NEXT FROM TempdDBSizeAutoGrow   
+                        								INTO  @dtempdbFileName  
+                        							END   
+                        		CLOSE TempdDBSizeAutoGrow;  
+                        		DEALLOCATE TempdDBSizeAutoGrow;  
+                        
+                        	
+                        	-- set agreed defualts to model database
+                        	IF (	select distinct top 1 growth * 8 / 1024 FROM sys.sysaltfiles SF  
+                        		JOIN   sys.databases SD  	ON  SD.database_id = SF.dbid 
+                        		where SD.name like 'model') >=256 
+                        	BEGIN
+                        		PRINT 'STEP : Model database is already set to 256MB or more'
+                        	END
+                        	ELSE 
+                        	BEGIN
+                        		ALTER DATABASE [model] MODIFY FILE (NAME = modeldev, SIZE = 256MB, filegrowth=256Mb);
+                        		ALTER DATABASE [model] MODIFY FILE (NAME = modellog, SIZE = 256MB, filegrowth=256Mb);
+                        	END
+                        
+                        	-- set autogrowth 256MB for all user databases where is % and less than 256MB
+                        		-- Dynamically alters the file to set auto growth option to fixed mb   
+                        		DECLARE @name VARCHAR ( max ) -- Database Name  
+                        		DECLARE @dbid INT -- DBID  
+                        		DECLARE @vFileName VARCHAR ( max ) -- Logical file name  
+                        		DECLARE @vGrowthOption VARCHAR ( max ) -- Growth option  
+                        		DECLARE @Query VARCHAR(max) -- Variable to store dynamic sql  
+                        		DECLARE @AutogrowthSize VARCHAR(max) -- autogrowth size of dbfile
+                        		  
+                        		DECLARE db_cursor CURSOR FOR  
+                        		SELECT * FROM (SELECT   
+                        		    SD.database_id,   
+                        		    SD.name,  
+                        		    SF.name as name1,  
+                        		    --sf.fileid,   
+                        		    --SUSER_NAME(owner_sid),  
+                        		    --recovery_model_desc,  
+                        		    CASE SF.status & 0x100000  
+                        		    WHEN 1048576 THEN 'Percentage'  
+                        		    WHEN 0 THEN 'MB'  
+                        		    END AS 'vGrowthOption',
+                        			SF.growth * 8 / 1024 as size
+                        		FROM sys.sysaltfiles SF  
+                        		JOIN   
+                        		sys.databases SD  
+                        		ON   
+                        		SD.database_id = SF.dbid  and  state<>6) A
+                        		WHERE (vGrowthOption  = 'Percentage') or (  vGrowthOption  = 'MB' AND size<256) 
+                        		  
+                        		OPEN db_cursor  
+                        		FETCH NEXT FROM db_cursor INTO @dbid,@name,@vFileName,@vGrowthOption,@AutogrowthSize
+                        		WHILE @@FETCH_STATUS = 0  
+                        		BEGIN  
+                        		    PRINT 'Changing AutoGrowth option for database:-'+ UPPER(@name)+''  
+                        		    SET @Query  = 'ALTER DATABASE ['+ @name +'] MODIFY FILE (NAME = '+@vFileName+',FILEGROWTH = 256MB)'  
+                        		    exec(@Query)  
+                        		  
+                        		FETCH NEXT FROM db_cursor INTO @dbid,@name,@vFileName,@vGrowthOption,@AutogrowthSize    
+                        		END  
+                        		CLOSE db_cursor -- Closing the curson  
+                        		DEALLOCATE db_cursor  -- deallocating the cursor  
+                        
+END
+
+--change error log number of files
+EXEC xp_instance_regwrite N'HKEY_LOCAL_MACHINE', N'Software\Microsoft\MSSQLServer\MSSQLServer', N'NumErrorLogs', REG_DWORD, 20
+PRINT 'STEP : Number files of error logs was set to  '+ CONVERT(varchar,20)
+
+-- set job history log  
+EXEC msdb.dbo.sp_set_sqlagent_properties @jobhistory_max_rows=40000, @jobhistory_max_rows_per_job=200
+PRINT 'STEP : Job History Log was set to  40000 max rows and 200 per job'
+
+--set backup compress
+EXEC sp_configure 'show advanced option', '1'; 	RECONFIGURE WITH OVERRIDE
+IF (LEFT(CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(max)),CHARINDEX('.',CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(max))) - 1)>='11')
+BEGIN 
+	EXEC sys.sp_configure N'backup compression default', N'1'
+	RECONFIGURE WITH OVERRIDE
+END
+
+-- get info about maintenance delay for some of system resources heavy loading jobs
+IF OBJECT_ID('tempdb..#InstalledInstances') IS NOT NULL
+	TRUNCATE TABLE #InstalledInstances
+ELSE
+	CREATE TABLE #InstalledInstances(
+		Idx int IDENTITY(0,1),
+		Value VARCHAR(255),
+		Data VARCHAR(255),
+		Nullable VARCHAR(255) NULL
+	)
+INSERT #InstalledInstances    
+EXEC master..xp_regread
+'HKEY_LOCAL_MACHINE',
+'SOFTWARE\Microsoft\Microsoft SQL Server',
+'InstalledInstances'
+
+--Count of instances on server
+DECLARE @CountOfInstances int 
+SET @CountOfInstances = (SELECT COUNT(Idx) from #InstalledInstances)
+PRINT ('STEP : Count of instances on Server:  '+CONVERT(varchar,@CountOfInstances))
+
+-- SET MAXDOP  max degree of parallelism
+BEGIN
+	DECLARE @MAXDOPvalue int 
+	SET @MAXDOPvalue = (select value from sys.sysconfigures where comment IN ('maximum degree of parallelism'))
+						declare @hyperthreadingRatio bit
+						declare @logicalCPUs int
+						declare @HTEnabled int
+						declare @physicalCPU int
+						declare @SOCKET int
+						declare @logicalCPUPerNuma int
+						declare @NoOfNUMA int
+						declare @MAXDOPRecommendValue int
+						
+						select @logicalCPUs = cpu_count -- [Logical CPU Count]
+						    ,@hyperthreadingRatio = hyperthread_ratio --  [Hyperthread Ratio]
+						    ,@physicalCPU = cpu_count / hyperthread_ratio -- [Physical CPU Count]
+						    ,@HTEnabled = case 
+						        when cpu_count > hyperthread_ratio
+						            then 1
+						        else 0
+						        end -- HTEnabled
+						from sys.dm_os_sys_info
+						option (recompile);
+						
+						select @logicalCPUPerNuma = COUNT(parent_node_id) -- [NumberOfLogicalProcessorsPerNuma]
+						from sys.dm_os_schedulers
+						where [status] = 'VISIBLE ONLINE'
+						    and parent_node_id < 64
+						group by parent_node_id
+						option (recompile);
+						
+						select @NoOfNUMA = count(distinct parent_node_id)
+						from sys.dm_os_schedulers -- find NO OF NUMA Nodes 
+						where [status] = 'VISIBLE ONLINE'
+						    and parent_node_id < 64
+						
+						
+						-- Report the recommendations ....
+						select @MAXDOPRecommendValue =
+						    --- 8 or less processors and NO HT enabled
+						   case 
+						       when @logicalCPUs < 8
+						           and @HTEnabled = 0
+						           then    CAST(@logicalCPUs as int)
+						               --- 8 or more processors and NO HT enabled
+						       when @logicalCPUs >= 8
+						           and @HTEnabled = 0
+						           then  8
+						               --- 8 or more processors and HT enabled and NO NUMA
+						       when @logicalCPUs >= 8
+						           and @HTEnabled = 1
+						           and @NoOfNUMA = 1
+						           then  CAST(@logicalCPUPerNuma / @physicalCPU as int)
+						               --- 8 or more processors and HT enabled and NUMA
+						       when @logicalCPUs >= 8
+						           and @HTEnabled = 1
+						           and @NoOfNUMA > 1
+						           then  CAST(@logicalCPUPerNuma / @physicalCPU as int)
+						       else 0
+						       end 
+		if @MAXDOPRecommendValue=1 set @MAXDOPRecommendValue = 0
+
+	PRINT ('STEP : MAXDOP: Recommended Maximum degree of parallelism (MAXDOP) is '+CONVERT(varchar,@MAXDOPRecommendValue))
+
+	BEGIN	
+					EXEC sys.sp_configure N'max degree of parallelism', @MAXDOPRecommendValue
+					RECONFIGURE WITH OVERRIDE
+					set @MAXDOPvalue  = (select value from sys.sysconfigures where comment IN ('maximum degree of parallelism'))
+					PRINT ('STEP : MAXDOP: Maximum degree of parallelism (MAXDOP) on Instance is Auto set to :  '+CONVERT(varchar,@MAXDOPvalue))
+	END
+
+END
+
+--change min max memory
+BEGIN
+	DECLARE @TotalServerMemoryInMB int
+	DECLARE @SQLServerMemoryInMB int
+	DECLARE @OSServerMemoryInMB int 
+	DECLARE @versionMemoryColumn nvarchar(max)
+	DECLARE @sSQL nvarchar(500);
+	DECLARE @ParmDefinition nvarchar(500);
+	IF (LEFT(CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(max)),CHARINDEX('.',CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(max))) - 1)>='11')
+					BEGIN	
+							--different columnt in 2008 and >=2012 so needed divide
+							set @versionMemoryColumn = N'physical_memory_kb/1024'
+							SELECT @sSQL = N'SELECT @ServerMemoryInMBOUTPUT='+@versionMemoryColumn+' FROM sys.dm_os_sys_info';  
+					END
+				ELSE  
+					BEGIN 
+							--different columnt in 2008 and >=2012 so needed divide
+							set @versionMemoryColumn  =N'(physical_memory_in_bytes/1024 )/	1024'
+							SELECT @sSQL = N'SELECT @ServerMemoryInMBOUTPUT='+@versionMemoryColumn+' FROM sys.dm_os_sys_info';  
+							--set @ServerMemoryInMB  = (SELECT physical_memory_kb/1024 AS [Total Physical Memory IN MB] FROM sys.dm_os_sys_info )
+					END
+	--continue set memory based on count of instance and minus for OS and divide /// TODO check 
+	SET @ParmDefinition = N'@ServerMemoryInMBOUTPUT int OUTPUT';
+	EXEC sp_executesql @sSQL, @ParmDefinition, @ServerMemoryInMBOUTPUT=@TotalServerMemoryInMB OUTPUT;
+END
+
+--set memory for OS 
+DECLARE @SetMinMemoryValue  VARCHAR(20)
+DECLARE @SetMaxMemoryValue  VARCHAR(20)
+
+BEGIN
+	IF (@TotalServerMemoryInMB < 8192) 
+		 SET @OSServerMemoryInMB = 2048
+	ELSE  SET @OSServerMemoryInMB = 4096
+	
+	SET @SQLServerMemoryInMB= @TotalServerMemoryInMB-@OSServerMemoryInMB
+		
+	PRINT ('STEP : Memory setting: Total Memory on Server is '+CONVERT(varchar,@TotalServerMemoryInMB))	
+	PRINT ('STEP : Memory setting: Recommended Total Memory for OS is '+CONVERT(varchar,@OSServerMemoryInMB))
+	PRINT ('STEP : Memory setting: Recommended Total Memory for SQL is '+CONVERT(varchar,@SQLServerMemoryInMB))
+	SET @SQLServerMemoryInMB= @SQLServerMemoryInMB / (SELECT COUNT(Idx) from #InstalledInstances)
+	PRINT ('STEP : Memory setting: Recommended Max Server Memory for SQL instance is '+CONVERT(varchar,@SQLServerMemoryInMB))
+	PRINT ('STEP : Memory setting: Max/Min Memory for this Instance is :')
+		BEGIN	
+			RECONFIGURE
+				BEGIN
+						  set @SetMinMemoryValue = (select value from sys.sysconfigures where comment IN ('Minimum size of server memory (MB)'))
+						  set @SetMaxMemoryValue = (select value from sys.sysconfigures where comment IN ('Maximum size of server memory (MB)'))
+						  DECLARE @SQLServerMinInMB int 
+						  SET @SQLServerMinInMB = @SQLServerMemoryInMB/2
+
+						  IF @SetMinMemoryValue=0 
+								BEGIN
+									EXEC sys.sp_configure N'min server memory (MB)', @SQLServerMinInMB
+									PRINT ('STEP : Configuration option ''min server memory (MB)'' is AUTO set TO '+CONVERT(varchar,@SQLServerMinInMB))
+								END
+								ELSE 	PRINT ('STEP : Configuration option ''min server memory (MB)'' was NOT AUTO set, because is already set on '+CONVERT(varchar,@SetMinMemoryValue))
+
+						 IF @SetMaxMemoryValue = 2147483647	
+								BEGIN
+									 EXEC sys.sp_configure N'max server memory (MB)', @SQLServerMemoryInMB
+									 PRINT ('STEP : Configuration option ''max server memory (MB)'' is AUTO set TO '+CONVERT(varchar,@SQLServerMemoryInMB))
+								END
+								ELSE 	PRINT ('STEP : Configuration option ''max server memory (MB)'' was NOT AUTO set, because is already set on '+CONVERT(varchar,@SetMaxMemoryValue))									   
+					END		
+				
+			RECONFIGURE WITH OVERRIDE
+		END
+	
+END	
+
+
+EXEC sp_configure 'show advanced option', '0'; 	RECONFIGURE WITH OVERRIDE
+
+----------------LOGINS
+
+use master 
+
+if  exists (
+SELECT sid, name
+FROM sys.sql_logins
+WHERE name = 'TE_tempdeploy') 
+ 
+BEGIN
+	DROP LOGIN [TE_tempdeploy]
+END
+
+
+CREATE LOGIN [TE_tempdeploy] WITH PASSWORD=N'$password', DEFAULT_DATABASE=[master], CHECK_EXPIRATION=OFF, CHECK_POLICY=ON
+ALTER SERVER ROLE [sysadmin] ADD MEMBER [TE_tempdeploy]
+ 
+PRINT 'STEP : created login TE_tempdeploy $password ' 
+---
+--select login 0x01 to variable and then rename and disable
+
+declare @saname varchar(100)
+
+SELECT @saname=name
+FROM sys.sql_logins
+WHERE sid = 0x01;
+
+declare @sqlsaname varchar(200)
+ 
+set @sqlsaname ='ALTER LOGIN ['+@saname+']
+		WITH NAME = [old_sa];'
+exec (@sqlsaname)
+
+ALTER LOGIN [old_sa]
+DISABLE;
+
+  PRINT 'STEP : sa is renamed to old_sa and disabled '
+				   
+				  
+
+--SELECT sid, name
+--FROM sys.sql_logins
+--WHERE name = 'sa';
+
+
+--create TE_DBA login which should be saved to TEP
+			
+if exists (select database_id from sys.dm_exec_sessions where original_login_name='TE_DBA')
+BEGIN	
+	--ALTER LOGIN [TE_DBA] WITH PASSWORD=N'"+$SqlSA_pw+"'
+    PRINT 'STEP : login TE_DBA is used'
+END
+else 
+BEGIN 
+		if exists (
+		SELECT sid, name
+		FROM sys.sql_logins
+		WHERE name = 'TE_DBA') 
+		BEGIN 
+				DROP LOGIN [TE_DBA]		
+                PRINT 'STEP : login TE_DBA is dropped'
+		END
+			CREATE LOGIN [TE_DBA] WITH PASSWORD=N'"+$SqlSA_pw+"', DEFAULT_DATABASE=[master], CHECK_POLICY=ON	
+			ALTER SERVER ROLE [sysadmin] ADD MEMBER [TE_DBA]
+                PRINT 'STEP : login TE_DBA is created'
+END
+"
+     #Write-FormatedOutput "This is new login TE_tempdeploy password : $password   " -color "Green"  
+    #endregion
+         ######################SETTING OF SQL COMMAND ######################################
+        #$dataSource
+        $connection = new-object system.data.SqlClient.SQLConnection
+                   try
+                   {
+                        $dataSource=""
+                        $dataSource = FN_SetDataSourceForSQLOpenCon -InstanceName $InstanceName -IsCluster $IsCluster -ClusterSQLName $ClusterSQLName
+                         
+						  #https://jira.etb.tieto.com/browse/DBPS-137
+                            try{
+                                #$connection = FN_SQLopenCon -ConString $($dataSource) -userId "TE_DBA" -userPass $SqlSA_pw
+                                Invoke-Sqlcmd -Query $sqlCommand -ServerInstance $dataSource  -Verbose -Username "sa" -Password $SqlSA_pw -ea Stop
+
+                                Write-FormatedOutput "connected to SQL with sa login - sa login renamed to old_sa" $SqlInstanceName $ErrorMessage -color "yellow" 
+                                Write-FormatedOutput "Set SetSQLConfig  on Instance {0} ... "  $SqlInstanceName  -color "Green"
+											  
+                            }
+                            catch{
+                                    Write-FormatedOutput "problem with connected to SQL with sa login" $SqlInstanceName $ErrorMessage -color "red" 
+                                      try {
+                                                 #$connection = FN_SQLopenCon -ConString $($dataSource) -userId "TE_DBA" -userPass $SqlSA_pw 
+                                                 Invoke-Sqlcmd -Query $sqlCommand -ServerInstance $dataSource  -Verbose -Username "TE_DBA" -Password $SqlSA_pw -ea Stop
+                                                 Write-FormatedOutput "connected to SQL with TE_DBA login - sa already renamed to old_sa" $SqlInstanceName $ErrorMessage -color "yellow"
+                                                 Write-FormatedOutput "Set SetSQLConfig  on Instance {0} ... "  $SqlInstanceName  -color "Green"
+                                          }
+                                     catch{
+                                                Write-FormatedOutput "problem with connected to SQL with TE_DBA login" $SqlInstanceName $ErrorMessage -color "red" 
+                                         }
+                            }
+                       #$command = new-object system.data.sqlclient.sqlcommand($sqlCommand,$connection)		
+                       #$adapter = New-Object System.Data.sqlclient.sqlDataAdapter $command	
+                       #$DatasetSQLAccount = New-Object System.Data.DataSet	
+                       #$adapter.Fill($DatasetSQLAccount) | out-null ;
+                       #$connection.Close()     
+    
+                   }
+                   catch 
+                   {
+                         $ErrorMessage = $_.Exception.Message   
+                         Write-FormatedOutput "Set SetSQLConfig  on Instance {0} with error {1} ... " $SqlInstanceName $ErrorMessage -color "Red"
+                         $connection.Close()
+
+                   }
+
+
+
+  
+    }<#Close FN_SetSQLConfig#>;
+ 
+ 
+    function FN_SetSQLWriterDisable
+    {
+             try{
+                          $SQLWriterPostCheck = (Get-service -name SQLWriter).Status
+                          if ($SQLWriterPostCheck -eq "Running") 
+                          {
+                             set-service -Name SQLWriter  -StartupType Disabled   -status Stopped
+                             Write-FormatedOutput "SQLWriter is stopped"   -color "Green"}
+                          else
+                          {Write-FormatedOutput "SQLWriter is stopped"   -color "Green"} 
+                      } catch {
+                          Write-FormatedOutput "Error occured: " $_.Exception.Message -color "White"
+                      }
+    }<#Close FN_SetSQLWriterDisable#>;
+
+    function FN_SetSQLTELEMETRYDisable
+    ($instancename)  
+    {
+             try{
+                          switch ($instancename)
+                          {
+                              'MSSQLSERVER' {$SQLTELEMETRYOBJECT = (Get-service -name "SQLTELEMETRY")}
+                              '' {$SQLTELEMETRYOBJECT = (Get-service -name "SQLTELEMETRY*")}
+                              Default  {$tempTelemetry = "SQLTELEMETRY$"+$instancename; $SQLTELEMETRYOBJECT = (Get-service -name $tempTelemetry)}
+                          }
+                          
+                          
+                          foreach ($item in $SQLTELEMETRYOBJECT)
+                          {
+
+                            $SQLTELEMETRYService= $item.name
+                               $SQLTelemetryPostCheck = (Get-service -name $SQLTELEMETRYService).Status
+                                if ($SQLTelemetryPostCheck -eq "Running") 
+                                {
+                                   set-service -Name $SQLTELEMETRYService  -StartupType Disabled   -status Stopped
+                                   Write-FormatedOutput "$SQLTELEMETRYService is stopped"   -color "Green"}
+                                else
+                                {Write-FormatedOutput "$SQLTELEMETRYService is stopped"   -color "Green"} 
+                          }
+
+
+                         
+                      } catch {
+                          Write-FormatedOutput "Error occured: " $_.Exception.Message -color "White"
+                      }
+    }<#Close FN_SetSQLTELEMETRYDisable#>;
+
+    function FN_TurnOffCEIP
+    {
+                    ##################################################
+					#https://jira.etb.tieto.com/browse/DBPS-129
+                    #  Deactivate CEIP registry keys #
+                    ##################################################
+                    # Set all CustomerFeedback & EnableErrorReporting in the key directory HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server to 0
+                    # Set HKEY_LOCAL_MACHINE\Software\Microsoft\Microsoft SQL Server\***\CustomerFeedback=0
+                    # Set HKEY_LOCAL_MACHINE\Software\Microsoft\Microsoft SQL Server\***\EnableErrorReporting=0
+                    # *** --> Version of SQL Server (100,110,120,130,140,...)
+                    # For the Engine
+                    # Set HKEY_LOCAL_MACHINE\Software\Microsoft\Microsoft SQL Server\MSSQL**.<instance>\CPE\CustomerFeedback=0
+                    # Set HKEY_LOCAL_MACHINE\Software\Microsoft\Microsoft SQL Server\MSSQL**.<instance>\CPE\EnableErrorReporting=0
+                    # For SQL Server Analysis Server (SSAS)
+                    # Set HKEY_LOCAL_MACHINE\Software\Microsoft\Microsoft SQL Server\MSAS**.<instance>\CPE\CustomerFeedback=0
+                    # Set HKEY_LOCAL_MACHINE\Software\Microsoft\Microsoft SQL Server\MSAS**.<instance>\CPE\EnableErrorReporting=0
+                    # For Server Reporting Server (SSRS)
+                    # Set HKEY_LOCAL_MACHINE\Software\Microsoft\Microsoft SQL Server\MSRS**.<instance>\CPE\CustomerFeedback=0
+                    # Set HKEY_LOCAL_MACHINE\Software\Microsoft\Microsoft SQL Server\MSRS**.<instance>\CPE\EnableErrorReporting=0
+                    # ** --> Version of SQL Server (10,11,12,13,14,...)
+                    ##################################################
+                    $Key = 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server'
+                    $FoundKeys = Get-ChildItem $Key -Recurse | Where-Object -Property Property -eq 'EnableErrorReporting'
+                    foreach ($Sqlfoundkey in $FoundKeys)
+                    {
+                    $SqlFoundkey | Set-ItemProperty -Name EnableErrorReporting -Value 0
+                    $SqlFoundkey | Set-ItemProperty -Name CustomerFeedback -Value 0
+                    }
+                    ##################################################
+                    # Set HKEY_LOCAL_MACHINE\Software\Wow6432Node\Microsoft\Microsoft SQL Server\***\CustomerFeedback=0
+                    # Set HKEY_LOCAL_MACHINE\Software\Wow6432Node\Microsoft\Microsoft SQL Server\***\EnableErrorReporting=0
+                    # *** --> Version of SQL Server(100,110,120,130,140,...)
+                    ##################################################
+                    $WowKey = "HKLM:\SOFTWARE\Wow6432Node\Microsoft\Microsoft SQL Server"
+                    $FoundWowKeys = Get-ChildItem $WowKey | Where-Object -Property Property -eq 'EnableErrorReporting'
+                    foreach ($SqlFoundWowKey in $FoundWowKeys)
+                    {
+                    $SqlFoundWowKey | Set-ItemProperty -Name EnableErrorReporting -Value 0
+                    $SqlFoundWowKey | Set-ItemProperty -Name CustomerFeedback -Value 0
+                    }
+
+                 Write-FormatedOutput "Disable Error reporting on {0} ... " $SqlInstanceName  -color "Green"
+        }<#Close FN_TurnOffCEIP#>;
+
+    function FN_AGSetting  
+    {
+     Param
+            (
+                [Parameter(Mandatory = $True) ] [String] $InstanceName =$instancename,
+                [Parameter(Mandatory = $false) ] [String] $AGListenerName ="",
+                [Parameter(Mandatory = $false) ] [String] $AgListenerIP =""      
+            )
+           try
+           {
+                    $env:PSModulePath = [System.Environment]::GetEnvironmentVariable("PSModulePath","Machine")
+                     Import-Module "SQLPS" -DisableNameChecking
+                     $tempServerInstance=""
+
+                     if ($instancename -eq "MSSQLSERVER")
+                     {             
+                         $tempServerInstance=$env:computername
+                     }
+                     else 
+                     {
+                         $tempServerInstance=$env:computername+"\"+$instancename
+                     }
+                     Enable-SqlAlwaysOn -ServerInstance $tempServerInstance -Force
+                    Write-FormatedOutput "Always On was enabled on Instance {0} and service was restarted ... " $SqlInstanceName  -color "Green"
+           }
+            catch
+           {
+                Write-FormatedOutput "FN_AGSetting Error occured: " $_.Exception.Message -color "White"   -color "Red"
+           }
+           
+                    
+
+    }<#Close FN_AGSetting#>;
+
+ #run function ###################
+
+        LocalPolicyCFG_Export
+        
+
+        if ($SqlInstanceName -eq "MSSQLSERVER")
+        {
+            $tempuser="NT SERVICE\MSSQLSERVER"
+        }
+        else 
+        {
+         $tempuser="NT SERVICE\MSSQL$"+$SqlInstanceName 
+        }
+        
+        LocalPolicyCFG_AddPriv -Member $tempuser -LP_USER_RIGHTS SeIncreaseQuotaPrivilege 
+        LocalPolicyCFG_AddPriv -Member $tempuser -LP_USER_RIGHTS SeServiceLogonRight 
+        LocalPolicyCFG_AddPriv -Member $tempuser -LP_USER_RIGHTS SeImpersonatePrivilege 
+        LocalPolicyCFG_AddPriv -Member $tempuser -LP_USER_RIGHTS SeManageVolumePrivilege 
+        LocalPolicyCFG_AddPriv -Member $tempuser -LP_USER_RIGHTS SeSecurityPrivilege 
+        LocalPolicyCFG_AddPriv -Member $tempuser -LP_USER_RIGHTS SeDebugPrivilege 
+        LocalPolicyCFG_AddPriv -Member $tempuser -LP_USER_RIGHTS SeBackupPrivilege 
+      
+        LocalPolicyCFG_Configure
+
+        FN_TurnOffCEIP   
+        FN_setTCPport -InstanceName  $SqlInstanceName -tcpPort  $tcpPort
+        FN_setFirewall -InstanceName  $SqlInstanceName -tcpPort  $tcpPort
+        
+        FN_SetSQLConfig -InstanceName $SqlInstanceName -IsCluster $isCluster 
+
+        if ($isCluster -ne $true)
+        {
+            FN_SetSQLWriterDisable  
+            FN_SetSQLTELEMETRYDisable -instancename $SqlInstanceName      
+        }
+
+        if ($isAG -eq $true)
+        {
+            FN_AGSetting  -InstanceName $SqlInstanceName #-AGListenerName $AGListenerName -AgListenerIP $AGListenerIP
+        }
+																	  
+#endregion
+
+
+ 
+
+ 
